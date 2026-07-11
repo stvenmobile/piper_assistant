@@ -1,0 +1,9 @@
+# Goal Definition: What Piper wants Hermes to look up
+string research_topic
+---
+# Result Definition: What Hermes returns when the complete sweep commits
+bool success
+int32 pages_ingested
+---
+# Feedback Definition: Live updates while Hermes is actively scraping
+string current_url_processing

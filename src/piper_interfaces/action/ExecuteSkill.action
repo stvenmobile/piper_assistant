@@ -1,0 +1,12 @@
+# Goal definition
+string skill_name
+string area
+int32 priority
+---
+# Result definition
+bool success
+string message
+---
+# Feedback definition
+float32 percentage_complete
+string status_message

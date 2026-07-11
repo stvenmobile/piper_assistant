@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Piper Perception Core</title>
+    <style>
+        body {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .dashboard-layout {
+            display: grid;
+            grid-template-columns: 7fr 5fr;
+            gap: 20px;
+            max-width: 1650px;
+            margin: 0 auto;
+        }
+
+        .media-row-grid {
+            grid-column: 1 / span 2;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 10px;
+        }
+
+        .card {
+            background: #161b22; 
+            border: 1px solid #30363d; 
+            border-radius: 8px; 
+            padding: 20px;
+            font-family: monospace;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .video-container {
+            position: relative;
+            margin-top: 10px;
+            width: 100%;
+            display: inline-block; 
+        }
+
+        .video-container img, .sketch-container img {
+            width: 100%; 
+            height: auto;
+            border: 1px solid #3a3f47; 
+            border-radius: 6px;
+            display: block;
+        }
+
+        .tracking-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .dual-pane-grid {
+            grid-column: 1 / span 2;
+            display: flex;             /* Changed from grid to flex layout */
+            justify-content: space-between;
+            gap: 20px;
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        .dual-pane-grid .card {
+            flex: 1;                   /* Forces both panes to fill equal portions of the width */
+            width: 50%;
+            box-sizing: border-box;    /* Prevents padding from spilling over the borders */
+        }
+
+        .terminal-box {
+            height: 250px; 
+            overflow-y: auto; 
+            background: #010409; 
+            padding: 14px; 
+            border-radius: 6px; 
+            color: #58a6ff; 
+            border: 1px solid #21262d; 
+            font-size: 13px; 
+            white-space: pre-wrap;
+            line-height: 1.45;
+        }
+
+        .telemetry-row {
+            grid-column: 1 / span 2;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+
+        .status-container {
+            padding: 15px; 
+            background-color: #161b22; 
+            border-radius: 8px; 
+            border: 1px solid #30363d;
+            border-left: 5px solid #ffcc00;
+            box-sizing: border-box;
+        }
+
+        .panel-container {
+            padding: 15px; 
+            background-color: #161b22; 
+            border-radius: 8px; 
+            border: 1px solid #30363d;
+            box-sizing: border-box;
+        }
+
+        .panel-title {
+            margin-top: 0; 
+            color: #ffffff;
+            font-size: 0.95rem;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+            font-family: monospace;
+        }
+
+        .scan-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .scan-quadrant {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 6px;
+            font-size: 0.8rem;
+        }
+
+        .quadrant-title {
+            color: #ffa500;
+            font-weight: bold;
+            font-size: 0.75rem;
+            border-bottom: 1px solid #21262d;
+            margin-bottom: 4px;
+        }
+
+        .jog-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #161b22;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            box-sizing: border-box;
+        }
+        
+        .jog-row {
+            display: flex;
+            gap: 10px;
+            margin: 2px 0;
+        }
+
+        .btn-jog {
+            background: #21262d;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-weight: bold;
+            cursor: pointer;
+            min-width: 80px;
+            text-align: center;
+            font-size: 0.8rem;
+        }
+
+        .btn-jog:hover {
+            background: #30363d;
+            color: #58a6ff;
+            border-color: #58a6ff;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-layout">
+        
+        <!-- ROW 1: VIDEO STREAM & RECENT SKETCH SIDE-BY-SIDE -->
+        <div class="media-row-grid">
+            <!-- Left Pane: Live Camera Video Feed -->
+            <div class="card">
+                <h3 style="color: #58a6ff; margin-top: 0; margin-bottom: 10px;">👁️ Live Spatial Perception Video Stream</h3>
+                <div class="video-container">
+                    <img id="streamVideo" src="/video_feed" alt="Piper Camera Stream" />
+                    <canvas id="trackingCanvas" class="tracking-canvas"></canvas>
+                </div>
+            </div>
+
+            <!-- Right Pane: Newest File System Sketch Capture Output -->
+            <div class="card">
+                <h3 style="color: #79c0ff; margin-top: 0; margin-bottom: 10px;">🎨 Most Recent Autonomous Sketch</h3>
+                <div class="sketch-container" style="margin-top: 10px; width: 100%;">
+                    <img id="sketchViewer" src="/assets/sketchbook/placeholder.jpg" alt="No sketch generated yet" onerror="this.src='/assets/sketchbook/' + lastSeenSketchName;" />
+                </div>
+            </div>
+        </div>
+
+        <!-- ROW 2: CORE TELEMETRY STATUS ROW -->
+        <div class="telemetry-row">
+            <div class="status-container" id="status-card-accent">
+                <h3 style="margin: 0; color: #ffffff; font-size: 1.0rem;">Mode: 
+                    <span id="current-state" style="color: #ffcc00; font-weight: bold;">SOLO</span>
+                </h3>
+                <p id="active-task" style="margin: 5px 0 0 0; color: #8b949e; font-size: 0.8em;">Awaiting streams...</p>
+            </div>
+
+            <div class="panel-container">
+                <h3 class="panel-title" style="color: #ffa500;">World Model Spatial Matrix</h3>
+                <div class="scan-grid">
+                    <div class="scan-quadrant"><div class="quadrant-title">P1: TOP-LEFT</div><div id="quad-p1" style="color:#58a6ff;">Empty</div></div>
+                    <div class="scan-quadrant"><div class="quadrant-title">P2: TOP-RIGHT</div><div id="quad-p2" style="color:#58a6ff;">Empty</div></div>
+                    <div class="scan-quadrant"><div class="quadrant-title">P4: B-LEFT</div><div id="quad-p4" style="color:#58a6ff;">Empty</div></div>
+                    <div class="scan-quadrant"><div class="quadrant-title">P3: B-RIGHT</div><div id="quad-p3" style="color:#58a6ff;">Empty</div></div>
+                </div>
+            </div>
+
+            <div class="jog-panel">
+                <div style="color: #8b949e; font-size: 0.7rem; margin-bottom: 4px; font-weight: bold; font-family: monospace;">SERVO OVERRIDE</div>
+                <div class="jog-row"><button class="btn-jog" onclick="jog('up')">▲ UP</button></div>
+                <div class="jog-row">
+                    <button class="btn-jog" onclick="jog('left')">◀ LEFT</button>
+                    <button class="btn-jog" onclick="jog('right')">RIGHT ▶</button>
+                </div>
+                <div class="jog-row"><button class="btn-jog" onclick="jog('down')">▼ DOWN</button></div>
+            </div>
+        </div>
+
+        <!-- ROW 3: DEEP TEXT PANELS (TASK PROGRESS & HISTORY LEDGER) -->
+        <div class="dual-pane-grid">
+            <div class="card">
+                <h3 style="color: #ffa500; margin: 0 0 10px 0; font-size: 0.95rem;">📊 1. Current Task Progress Status</h3>
+                <div id="progress-terminal" class="terminal-box">Reading runtime telemetry strings...</div>
+            </div>
+            <div class="card">
+                <h3 style="color: #56d364; margin: 0 0 10px 0; font-size: 0.95rem;">📜 2. Archive History Ledger</h3>
+                <div id="ledger-terminal" class="terminal-box">Reading snapshot sequence frames...</div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let lastSeenSketchName = "";
+
+        function jog(dir) {
+            fetch('/api/jog', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ direction: dir, step: 6.0 })
+            });
+        }
+
+        function syncTerminals() {
+            fetch('/api/task_progress').then(res => res.json()).then(data => {
+                document.getElementById('progress-terminal').innerText = data.content;
+            });
+            fetch('/api/history_ledger').then(res => res.json()).then(data => {
+                const el = document.getElementById('ledger-terminal');
+                el.innerText = data.content;
+                el.scrollTop = el.scrollHeight;
+            });
+        }
+
+        function updateTelemetry() {
+            fetch('/api/state').then(res => res.json()).then(data => {
+                const stateSpan = document.getElementById('current-state');
+                const taskP = document.getElementById('active-task');
+                const cardAccent = document.getElementById('status-card-accent');
+                
+                stateSpan.innerText = data.state;
+                taskP.innerText = data.active_task;
+                
+                if (data.state === "TEAMING") {
+                    stateSpan.style.color = "#56d364";
+                    cardAccent.style.borderLeftColor = "#56d364";
+                } else {
+                    stateSpan.style.color = "#ffcc00";
+                    cardAccent.style.borderLeftColor = "#ffcc00";
+                }
+
+                // Update Image Sketch Window src if updated
+                if (data.latest_sketch && data.latest_sketch !== lastSeenSketchName) {
+                    lastSeenSketchName = data.latest_sketch;
+                    document.getElementById('sketchViewer').src = "/assets/sketchbook/" + data.latest_sketch + "?t=" + new Date().getTime();
+                }
+
+                if (data.matrix_report) {
+                    const m = data.matrix_report;
+                    document.getElementById('quad-p1').innerText = m.P1_Top_Left && m.P1_Top_Left.length ? m.P1_Top_Left.join(', ') : 'CLEAR';
+                    document.getElementById('quad-p2').innerText = m.P2_Top_Right && m.P2_Top_Right.length ? m.P2_Top_Right.join(', ') : 'CLEAR';
+                    document.getElementById('quad-p3').innerText = m.P3_Bottom_Right && m.P3_Bottom_Right.length ? m.P3_Bottom_Right.join(', ') : 'CLEAR';
+                    document.getElementById('quad-p4').innerText = m.P4_Bottom_Left && m.P4_Bottom_Left.length ? m.P4_Bottom_Left.join(', ') : 'CLEAR';
+                }
+
+                const img = document.getElementById('streamVideo');
+                const canvas = document.getElementById('trackingCanvas');
+                const ctx = canvas.getContext('2d');
+                if (img.clientWidth === 0 || img.clientHeight === 0) return;
+
+                canvas.width = img.clientWidth;
+                canvas.height = img.clientHeight;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (data.boxes) {
+                    const scaleX = canvas.width / 640.0;
+                    const scaleY = canvas.height / 480.0;
+                    data.boxes.forEach(box => {
+                        ctx.strokeStyle = '#58a6ff'; 
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(box.xmin * scaleX, box.ymin * scaleY, (box.xmax - box.xmin) * scaleX, (box.ymax - box.ymin) * scaleY);
+                    });
+                }
+            });
+        }
+
+        setInterval(updateTelemetry, 450);
+        setInterval(syncTerminals, 2000);
+    </script>
+</body>
+</html>
