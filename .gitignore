@@ -1,35 +1,49 @@
-# Python compilation artifacts
+# Python Bytecode & Cache
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
 .pytest_cache/
+.coverage
 
-# Local Environment Configuration Variables
-.env
-
-# ROS 2 build outputs
-build/
-install/
-log/
-
-# Python Virtual Environments
+# Virtual Environments
 .venv/
 venv/
 env/
+ENV/
 
-# IDE config folders
-.vscode/
-.idea/
+# Model Weights & Checkpoints (Prevent large binary commits)
+*.pt
+*.bin
+*.onnx
+*.safetensors
+*.gguf
+models/
+checkpoints/
 
-# Core database files
-*.db
-*.db-journal
-*.sqlite
+# Obsidian Intermediate Indices & Local Workspace Cache
+.obsidian/workspace*
+.obsidian/cache/
+*.tmp
+*.log
 
-# Large generated asset directories (saved locally in assets)
-src/piper_brain/piper_brain/assets/sketchbook/*.jpg
-src/piper_brain/piper_brain/assets/sketchbook/*.png
-src/piper_tools/piper_tools/assets/world_model_vault/Sources/
-src/piper_tools/piper_tools/assets/world_model_vault/Dashboards/
-src/piper_tools/piper_tools/assets/world_model_vault/*.md
+# Audio Caches & Recordings
+*.wav
+*.mp3
+*.flac
+*.pcm
+recordings/
+
+# Environment Variables & Secrets
+.env
+*.key
+*.pem
+token.txt
+
+# Jetson / System Artifacts
+.DS_Store
+*.swp
+*~
+build/
+install/
+log/
