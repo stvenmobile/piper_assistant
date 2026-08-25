@@ -42,6 +42,7 @@ piper_assistant/
 
 
 ## 4. Operational Modes (LangGraph State Machine)
+```
        +-------------------------------+
        ¦   Awaiting Audio / Requests   ¦
        +-------------------------------+
@@ -53,6 +54,8 @@ piper_assistant/
  ¦(Introspection¦            ¦ (Collaborator¦
  ¦ & Geometry)  ¦            ¦  Execution)  ¦
  +--------------+            +--------------+
+```
+
 STATE: IDLE (The Introspective Researcher): When no collaborator is actively speaking or querying, Piper generates cross-domain prompts, computes residual stream activations, evaluates manifold curvature, and records discovered isomorphisms in daily_journal.md and the Obsidian vault.
 
 STATE: ENGAGED (The Collaborator): When a user speaks or submits a task in task_requests.md, Piper identifies the speaker, loads their persistent profile, executes the directive, and reports findings via text or voice.
