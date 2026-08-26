@@ -47,3 +47,9 @@ token.txt
 build/
 install/
 log/
+.venv/
+__pycache__/
+*.wav
+src/piper_audio/models/*.onnx
+src/piper_audio/models/*.onnx.json
+kokoro_models/

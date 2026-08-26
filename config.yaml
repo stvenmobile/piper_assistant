@@ -1,0 +1,29 @@
+assistant:
+  name: "Piper"
+  engaged_timeout_seconds: 20.0
+  max_conversation_turns: 8
+
+llm:
+  provider: "ollama"
+  base_url: "http://192.168.1.150:11434"
+  model: "llama3.2:3b"
+  temperature: 0.4
+
+audio:
+  mic_device_hint: "pnp"
+  speaker_device_hint: "usb2.0"
+  hardware_rate: 48000
+  whisper_rate: 16000
+  whisper_model: "base.en"
+  whisper_compute: "int8"
+
+  # Voice synthesis configuration
+  # voice_model: "en_US-lessac-medium.onnx"
+  # voice_model: "en_US-amy-medium.onnx"
+  # voice_model: "en_US-ryan-high.onnx"
+  voice_model: "en_US-hfc_female-medium.onnx"
+
+  volume: 0.45
+  length_scale: 0.95   # Speech rate: values < 1.0 produce slightly faster, more natural cadence
+  noise_scale: 0.667   # Phoneme pitch/inflection variation
+  noise_w: 0.8         # Phoneme duration variability

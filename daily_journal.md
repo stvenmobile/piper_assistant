@@ -1,0 +1,37 @@
+## 2026-08-26
+- `[11:56:53]` **[SYSTEM]** Piper assistant runtime initialized.
+  - *Details*: Inactivity timeout: 20s | Memory window: 8 turns
+- `[11:55:41]` **[SYSTEM]** Piper assistant runtime initialized.
+  - *Details*: Inactivity timeout: 20s | Memory window: 8 turns
+- `[11:53:40]` **[SYSTEM]** Piper assistant terminated.
+- `[11:53:36]` **[SHUTDOWN]** Operator requested exit via keyboard CLI.
+- `[11:50:27]` **[STATE]** ENGAGED -> IDLE
+  - *Details*: User issued dismissal.
+- `[11:50:26]` **[INTENT_LOCAL]** Matched 'Bye!'
+  - *Details*: Replied: 'Goodbye!'
+- `[11:50:14]` **[REPLY_LLM]** Generated: 'You're testing my limits, Steve! Alright, let's try something new. What kind of project are you working on?'
+- `[11:50:13]` **[INTENT_LLM]** Escalated prompt to Ollama: 'I can't ask the same thing twice.'
+- `[11:50:01]` **[REPLY_LLM]** Generated: 'Paris. You asked that already!'
+- `[11:49:51]` **[INTENT_LLM]** Escalated prompt to Ollama: 'What is the capital of France?'
+- `[11:49:44]` **[INTENT_LOCAL]** Matched 'Hi Piper'
+  - *Details*: Replied: 'Hey there! What are we working on?'
+- `[11:49:44]` **[STATE]** IDLE -> ENGAGED
+  - *Details*: Wake-word triggered with: 'Hi Piper'
+- `[11:49:34]` **[SYSTEM]** Piper assistant runtime initialized.
+  - *Details*: Inactivity timeout: 20s | Memory window: 8 turns
+- `[11:37:24]` **[SYSTEM]** Piper assistant terminated.
+- `[11:37:22]` **[SHUTDOWN]** Operator requested exit via keyboard CLI.
+- `[11:37:10]` **[REPLY_LLM]** Generated: 'I am having trouble communicating with my neural core.'
+- `[11:37:09]` **[INTENT_LLM]** Escalated prompt to Ollama: 'What is the capital of France?'
+- `[11:37:02]` **[INTENT_LOCAL]** Matched 'Hi Piper'
+  - *Details*: Replied: 'Hey there! What are we working on?'
+- `[11:37:02]` **[STATE]** IDLE -> ENGAGED
+  - *Details*: Wake-word triggered with: 'Hi Piper'
+- `[11:36:56]` **[SYSTEM]** Piper assistant runtime initialized.
+  - *Details*: Inactivity timeout: 20s | Memory window: 8 turns
+- `[11:35:38]` **[INTENT_LOCAL]** Matched 'Hi Piper'
+  - *Details*: Replied: 'Hey there! What are we working on?'
+- `[11:35:38]` **[STATE]** IDLE -> ENGAGED
+  - *Details*: Wake-word triggered with: 'Hi Piper'
+- `[11:35:31]` **[SYSTEM]** Piper assistant runtime initialized.
+  - *Details*: Inactivity timeout: 20s | Memory window: 8 turns
