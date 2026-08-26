@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 from piper_audio.speaker import PiperSpeaker
 from piper_audio.listener import PiperListener
+from piper_brain.config import CONFIG
 from piper_brain.quick_responder import QuickResponder
 from piper_brain.supervisor import PiperSupervisor, PiperBrainState
 from piper_brain.state import AgentState, create_initial_state, append_and_truncate_message
@@ -21,6 +22,14 @@ from piper_brain.journal import ActivityJournal
 
 ENGAGED_TIMEOUT_SECONDS = 20.0
 running = True
+
+tts_engine = CONFIG.get("audio", {}).get("tts_engine", "piper").lower()
+if tts_engine == "kokoro":
+    from piper_audio.kokoro_speaker import KokoroSpeaker
+    speaker = KokoroSpeaker()
+else:
+    from piper_audio.speaker import PiperSpeaker
+    speaker = PiperSpeaker()
 
 def keyboard_monitor(journal: ActivityJournal):
     """Background thread watching for 'q' or 'exit' on stdin."""

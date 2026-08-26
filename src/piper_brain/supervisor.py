@@ -1,15 +1,24 @@
 """
-Piper Supervisor: Voice-Driven Autonomous State Machine with Remote Ollama LLM.
+Piper Supervisor: Voice-Driven Autonomous State Machine with Dynamic Context and Remote Ollama.
 """
 
-from typing import TypedDict, Optional, Literal, List, Dict, Any
-from pathlib import Path
 import os
+import sys
+from pathlib import Path
+
+# Ensure src/ directory is on sys.path for direct script execution
+SRC_DIR = Path(__file__).resolve().parent.parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from typing import TypedDict, Optional, Literal, List, Dict, Any
 import re
 import yaml
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, END
+
+from piper_brain.tools import get_current_datetime_str, get_local_weather
 
 # Workspace and Configuration Path Resolution
 WORKSPACE_DIR = Path(__file__).resolve().parents[2]
@@ -69,8 +78,6 @@ def load_system_prompt() -> str:
     return base_dna + voice_rules
 
 
-# ----------------- Supervisor Class ----------------- #
-
 class PiperSupervisor:
     def __init__(self):
         llm_cfg = CONFIG["llm"]
@@ -84,7 +91,6 @@ class PiperSupervisor:
         self.graph = self._build_graph()
 
     def evaluate_audio_event_node(self, state: PiperBrainState) -> PiperBrainState:
-        """Evaluates text triggers against wake-word and dismissal patterns."""
         text = (state.get("input_text") or "").strip()
         current_mode = state.get("mode", "ALONE")
 
@@ -107,7 +113,6 @@ class PiperSupervisor:
         return state
 
     def resolve_user_node(self, state: PiperBrainState) -> PiperBrainState:
-        """Extracts identity from text and loads profile context."""
         text = (state.get("input_text") or "").strip()
         
         match = re.search(r"(?:i am|my name is|this is)\s+([A-Za-z]+)", text, re.IGNORECASE)
@@ -127,7 +132,6 @@ class PiperSupervisor:
         return state
 
     def execute_engaged_node(self, state: PiperBrainState) -> PiperBrainState:
-        """Runs remote Ollama inference on bounded dialogue history."""
         text = (state.get("input_text") or "").strip()
         if "messages" not in state or state["messages"] is None:
             state["messages"] = []
@@ -138,8 +142,17 @@ class PiperSupervisor:
 
         state["messages"].append(HumanMessage(content=text))
 
-        # Build prompt payload with user context and conversation window
-        context_prompt = self.system_prompt.content
+        current_time_str = get_current_datetime_str()
+        weather_summary = get_local_weather("Matthews,NC")
+        
+        temporal_context = (
+            f"\n\nENVIRONMENT CONTEXT:\n"
+            f"- Current Date & Time: {current_time_str}\n"
+            f"- Location: Matthews, North Carolina\n"
+            f"- Local Weather: {weather_summary}\n"
+        )
+
+        context_prompt = self.system_prompt.content + temporal_context
         if state.get("user_context"):
             context_prompt += f"\n\nActive User Profile:\n{state['user_context']}"
 
@@ -156,12 +169,10 @@ class PiperSupervisor:
             print(f"[Supervisor Error]: LLM invocation failed: {e}")
             state["output_text"] = "I am having trouble communicating with my neural core."
 
-        # Keep state messages bounded
         state["messages"] = state["messages"][-max_turns:]
         return state
 
     def autonomous_introspection_node(self, state: PiperBrainState) -> PiperBrainState:
-        """Executes background latent geometric exploration when idle."""
         topic = "Manifold Curvature Analysis (Residual Layers 8-12)"
         result = "Computed geodesic drift; stable semantic basin verified."
         
@@ -201,16 +212,15 @@ class PiperSupervisor:
         return workflow.compile()
 
     def process(self, state: PiperBrainState) -> PiperBrainState:
-        """Executes the compiled LangGraph workflow."""
         return self.graph.invoke(state)
 
 
 if __name__ == "__main__":
     supervisor = PiperSupervisor()
     initial_state: PiperBrainState = {
-        "mode": "ALONE",
-        "active_user": None,
-        "input_text": "Hey Piper, what is the distance to the moon?",
+        "mode": "ENGAGED",
+        "active_user": "Steve",
+        "input_text": "What is the date today and how is the weather?",
         "output_text": None,
         "user_context": "",
         "messages": [],

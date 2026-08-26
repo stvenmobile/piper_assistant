@@ -15,15 +15,14 @@ audio:
   hardware_rate: 48000
   whisper_rate: 16000
   whisper_model: "base.en"
+  # TTS Engine Selection: "kokoro" or "piper"
+  tts_engine: "kokoro"
+  kokoro_voice: "af_heart"
   whisper_compute: "int8"
-
   # Voice synthesis configuration
-  # voice_model: "en_US-lessac-medium.onnx"
-  # voice_model: "en_US-amy-medium.onnx"
-  # voice_model: "en_US-ryan-high.onnx"
   voice_model: "en_US-hfc_female-medium.onnx"
 
-  volume: 0.45
+  volume: 0.55
   length_scale: 0.95   # Speech rate: values < 1.0 produce slightly faster, more natural cadence
   noise_scale: 0.667   # Phoneme pitch/inflection variation
   noise_w: 0.8         # Phoneme duration variability

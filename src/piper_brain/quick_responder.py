@@ -6,6 +6,8 @@ import re
 import random
 from datetime import datetime
 from typing import Optional
+from datetime import datetime
+from piper_brain.tools import get_current_datetime_str, get_local_weather
 
 class QuickResponder:
     def __init__(self):
@@ -57,15 +59,22 @@ class QuickResponder:
             ),
         ]
 
-    def match(self, text: str) -> Optional[str]:
-        if not text:
-            return None
+    def match(self, text: str) -> str | None:
+        t = text.lower().strip()
+        
+        # Date queries
+        if any(q in t for q in ["what is today", "what's today", "what date", "what is the date", "today's date"]):
+            now = datetime.now()
+            return f"Today is {now.strftime('%A, %B %d, %Y')}."
 
-        # Normalize text: strip punctuation and lowercase
-        cleaned = self.clean_re.sub("", text.lower()).strip()
+        # Time queries
+        if any(q in t for q in ["what time is it", "what's the time", "current time"]):
+            now = datetime.now()
+            return f"It is currently {now.strftime('%I:%M %p')}."
 
-        for pattern, handler in self.routes:
-            if re.match(pattern, cleaned):
-                return handler(cleaned)
+        # Weather queries
+        if any(q in t for q in ["what is the weather", "what's the weather", "current weather", "weather outside"]):
+            weather = get_local_weather("Matthews,NC")
+            return f"In Matthews, it is currently {weather}."
 
         return None
