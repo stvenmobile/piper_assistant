@@ -16,7 +16,13 @@ def get_latest_experiment_summary() -> str:
     if not EXPERIMENTS_DIR.exists():
         return "I haven't recorded any geometry experiments in the vault yet."
 
-    notes = sorted(EXPERIMENTS_DIR.glob("EXP-*.md"), reverse=True)
+    # Experiment notes are named "<track-prefix>-<timestamp>.md" (WLCOMM,
+    # P3LOOP, ACCIT, ...) rather than a fixed "EXP-" prefix, and prefixes
+    # sort alphabetically ahead of/behind each other regardless of when
+    # they were written - so pick the most recent by mtime, not filename,
+    # or the "latest" experiment silently stays stuck on whichever track
+    # happens to sort last as a string.
+    notes = sorted(EXPERIMENTS_DIR.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not notes:
         return "No recent experiments found in the research vault."
 

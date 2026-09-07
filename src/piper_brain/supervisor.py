@@ -403,7 +403,7 @@ tags:
                 _, active_prefixes = get_active_goal_metadata()
                 cycle_prefix = random.choice(active_prefixes)
 
-                if cycle_prefix == "ACURATE":
+                if cycle_prefix == "ACCIT":
                     # Execute Concept Curation & Interestingness Scoring Pipeline
                     self.total_trials_run += 1
                     score_val = round(random.uniform(0.72, 0.96), 3)
@@ -414,7 +414,7 @@ tags:
                         accuracy=score_val * 100,
                         correlation=0.992,
                         cos_sim=0.785,
-                        prefix="ACURATE"
+                        prefix="ACCIT"
                     )
 
                     topic = "Autonomous Concept Curation & Tagging"
