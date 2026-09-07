@@ -108,25 +108,29 @@ class PiperBrainState(TypedDict):
 
 
 def log_supervisor_intentions():
-    """Scans active goals and logs intention manifest to the console upon entering IDLE state."""
-    active_goals = []
-    if GOALS_DIR.exists():
-        for filepath in GOALS_DIR.glob("*.md"):
-            try:
-                content = filepath.read_text(encoding="utf-8")
-                if "status: active" in content:
-                    lines = content.split("\n")
-                    title = next((l.split(": ")[1].strip('"\'') for l in lines if l.startswith("title:")), filepath.stem)
-                    prefix = next((l.split(": ")[1].strip('"\'') for l in lines if l.startswith("prefix:")), "EXP")
-                    active_goals.append(f"[{prefix}] {title}")
-            except Exception as e:
-                print(f"[Supervisor Intention Error] Could not read {filepath.name}: {e}")
+    """Logs the intention manifest to the console upon entering IDLE state.
+
+    Delegates to get_active_goal_metadata() rather than keeping its own
+    separate scan - this used to do its own naive `"status: active" in
+    content` substring search over each goal file's raw text, which
+    doesn't distinguish the real YAML field from those same words
+    appearing anywhere else in a file (e.g. explanatory prose describing a
+    *past* status field, which is exactly what falsely flagged ACCIT here
+    after it was set to paused). get_active_goal_metadata() is the actual
+    source of truth autonomous_introspection_node dispatches from, so
+    there is no longer a second, independently-wrong notion of "active."
+    """
+    context_str, _ = get_active_goal_metadata()
 
     print(f"\n[Supervisor: IDLE] Cooldown elapsed. Evaluating active research cycle...")
-    print(f"[Intention Manifest] Active Tracks Recognized:")
-    for goal in active_goals:
-        print(f"  - Synchronizing & Evaluating: {goal}")
-    print(f"[Dispatcher] Balancing compute between latent signaling sweeps and autonomous concept curation.\n")
+    active_lines = [line.strip()[2:] for line in context_str.splitlines() if line.strip().startswith("- ")]
+    if active_lines:
+        print(f"[Intention Manifest] Active Tracks Recognized:")
+        for goal in active_lines:
+            print(f"  - Synchronizing & Evaluating: {goal}")
+    else:
+        print(f"[Intention Manifest] No goal file is marked status: active.")
+    print(f"[Dispatcher] Balancing compute across active research track(s).\n")
 
 
 def get_active_goal_metadata() -> Tuple[str, List[str]]:
