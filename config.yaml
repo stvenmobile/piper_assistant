@@ -3,6 +3,13 @@ assistant:
   engaged_timeout_seconds: 20.0
   max_conversation_turns: 8
 
+# Web dashboard: the sole active input/output surface while the Orin NX
+# runs headless. Voice (audio: section below) stays configured but unused
+# by main.py for now.
+dashboard:
+  host: "0.0.0.0"
+  port: 8080
+
 llm:
   provider: "ollama"
   base_url: "http://192.168.1.150:11434"

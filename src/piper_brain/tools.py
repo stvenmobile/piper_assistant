@@ -30,14 +30,21 @@ def get_latest_experiment_summary() -> str:
             metadata = yaml.safe_load(parts[1])
             exp_id = metadata.get("id", latest_file.stem)
             concept = metadata.get("target_concept", "Concept transfer")
-            accuracy = metadata.get("accuracy", None)
             sim = metadata.get("cosine_similarity", 0.0)
             status = "successful" if metadata.get("transfer_success") else "inconclusive"
 
-            if accuracy is not None:
+            # tester.py's records store a 0-1 fraction under "accuracy";
+            # supervisor.py's autonomous trial notes store an already-scaled
+            # percentage under "top1_accuracy" - normalize both to a percent
+            # so this doesn't silently drop the far more common case (every
+            # autonomous trial) down to the cosine-only fallback below.
+            accuracy_fraction = metadata.get("accuracy", None)
+            accuracy_pct = accuracy_fraction * 100 if accuracy_fraction is not None else metadata.get("top1_accuracy", None)
+
+            if accuracy_pct is not None:
                 return (
                     f"In my latest experiment, {exp_id}, testing {concept}, "
-                    f"zero-shot transfer was {status} with {accuracy * 100:.1f} percent accuracy "
+                    f"zero-shot transfer was {status} with {accuracy_pct:.1f} percent accuracy "
                     f"and an average cosine alignment of {sim:.3f}."
                 )
             return (

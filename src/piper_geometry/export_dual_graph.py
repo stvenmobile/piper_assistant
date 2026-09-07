@@ -121,4 +121,19 @@ def export(
 
 
 if __name__ == "__main__":
-    export()
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", dest="model_name", default="Qwen/Qwen2.5-0.5B-Instruct")
+    parser.add_argument("--source-layer", type=int, default=8)
+    parser.add_argument("--target-model", dest="target_model_name", default=None,
+                         help="Defaults to --model (same-model cross-layer comparison).")
+    parser.add_argument("--target-layer", type=int, default=14)
+    args = parser.parse_args()
+
+    export(
+        model_name=args.model_name,
+        source_layer=args.source_layer,
+        target_model_name=args.target_model_name,
+        target_layer=args.target_layer,
+    )

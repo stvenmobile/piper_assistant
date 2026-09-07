@@ -106,12 +106,72 @@ cd ~/piper_assistant
 source .venv/bin/activate
 ```
 ### 6.2 Running the System
+The Orin NX now runs headless, so the **web dashboard is the only active
+input/output surface** - voice (`piper_audio/`: Whisper STT, Kokoro/Piper
+TTS) stays in the codebase, configured but unused by `main.py`, in case
+it's wanted again later.
+
 ```Bash
 python3 src/main.py
-(Press q + Enter in the terminal to cleanly terminate).
 ```
 
-## 7. Obsidian Research Compiler
+This starts the background research loop (throttled trials, gated to one
+in-flight at a time via `PiperSupervisor.research_lock`) and serves the
+dashboard at `http://<orin-ip>:8080` (configurable under `dashboard:` in
+`config.yaml`). Open it from a browser on the same network to see current
+status, the latest experiment summary, recent journal activity, and a text
+box to send Piper an instruction or question - typing there takes the same
+lock a research trial holds while it runs, so a message sent mid-trial
+just waits for that trial to finish rather than competing for the GPU.
+Stop the process with Ctrl+C.
+
+## 7. ai-graph Bridge (ESP32 Dual Concept-Graph Visualization)
+
+`src/piper_geometry/export_dual_graph.py` bridges Piper's Procrustes-alignment
+research to [ai-graph](https://github.com/stvenmobile/ai-graph), a CrowPanel
+ESP32-S3 display that renders two concept graphs side by side. It runs the
+same hand-picked concept set through one or two (model, layer) extractions,
+builds a cosine-similarity graph per side, and writes the result to
+`data/dual_graph.json`.
+
+By default it reproduces the validated same-model cross-layer comparison
+(Qwen2.5-0.5B-Instruct, Layer 8 vs. Layer 14). Pass `--target-model` to
+compare two genuinely different models instead:
+
+```Bash
+cd ~/piper_assistant
+python3 -m piper_geometry.export_dual_graph \
+    --model Qwen/Qwen2.5-0.5B-Instruct --source-layer 8 \
+    --target-model TinyLlama/TinyLlama-1.1B-Chat-v1.0 --target-layer 11
+```
+
+| Flag | Default | Meaning |
+| :--- | :--- | :--- |
+| `--model` | `Qwen/Qwen2.5-0.5B-Instruct` | HuggingFace repo id for side A |
+| `--source-layer` | `8` | Transformer block index to hook for side A |
+| `--target-model` | (same as `--model`) | HuggingFace repo id for side B - a different value compares two models instead of two layers of one model |
+| `--target-layer` | `14` | Transformer block index to hook for side B |
+
+Model weights come from `AutoModelForCausalLM.from_pretrained` (`extractor.py`)
+- no separate "pull" step is needed for ungated repos, the first run just
+  downloads and caches them from the Hub, which takes longer and needs more
+  disk the first time.
+
+The ESP32 board fetches `dual_graph.json` over plain HTTP, so it currently
+needs a file server pointed at `data/`:
+
+```Bash
+cd ~/piper_assistant
+python3 -m http.server 8420 --directory data
+```
+
+(`ufw allow 8420/tcp` if the firewall blocks it). The board's `secrets.h`
+points `JETSON_HOST`/`JETSON_PORT` at this server and re-fetches once on
+boot.
+
+---
+
+## 8. Obsidian Research Compiler
 The Obsidian compiler serves as the translation layer between Level 1 (machine latent dynamics) and Level 2 (human reporting):
 
 ```text
