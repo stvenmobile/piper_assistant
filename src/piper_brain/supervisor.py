@@ -32,6 +32,7 @@ if str(WORKSPACE_DIR) not in sys.path:
 from piper_brain.tools import get_current_datetime_str, get_local_weather, get_latest_experiment_summary
 from piper_brain.signaling_game import SignalingGame
 from nonverbal_tools.receiver_optimizer import AutonomousReceiverOptimizer, PARAM_GRID
+from piper_geometry.congruence_optimizer import CongruenceOptimizer, PARAM_GRID as ALIGNQ_PARAM_GRID
 
 # Directory and File Paths
 PROFILES_DIR = WORKSPACE_DIR / "profiles"
@@ -200,6 +201,7 @@ class PiperSupervisor:
 
         self.optimizer_engine = None
         self.signaling_engine = None
+        self.congruence_optimizer = None
         self.param_grid = PARAM_GRID
         self.total_trials_run = 0
 
@@ -229,6 +231,7 @@ class PiperSupervisor:
             "ACCIT": self._run_accit_trial,
             "P3LOOP": self._run_p3loop_trial,
             "WLCOMM": self._run_wlcomm_trial,
+            "ALIGNQ": self._run_alignq_trial,
         }
 
         self.graph = self._build_graph()
@@ -246,6 +249,12 @@ class PiperSupervisor:
         if self.signaling_engine is None:
             self.signaling_engine = SignalingGame()
         return self.signaling_engine
+
+    def _get_congruence_optimizer(self) -> CongruenceOptimizer:
+        """Lazy-loads the ALIGNQ optimizer (and its residual extractor) on first use."""
+        if self.congruence_optimizer is None:
+            self.congruence_optimizer = CongruenceOptimizer()
+        return self.congruence_optimizer
 
     def evaluate_audio_event_node(self, state: PiperBrainState) -> PiperBrainState:
         raw_text = (state.get("input_text") or "").strip()
@@ -350,7 +359,8 @@ class PiperSupervisor:
         state["messages"] = state["messages"][-max_turns:]
         return state
 
-    def _log_trial_note(self, trial_id: int, params: dict, accuracy: float, correlation: float, cos_sim: float, prefix: str = "WLCOMM"):
+    def _log_trial_note(self, trial_id: int, params: dict, accuracy: float, correlation: float, cos_sim: float,
+                         prefix: str = "WLCOMM", source_layer: int = 18, receiver_layer: int = 18):
         """Logs structured Markdown experiment artifact using the specified track prefix."""
         EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
         now_dt = datetime.now()
@@ -367,8 +377,8 @@ type: experiment
 cycle_prefix: {prefix}
 date: '{iso_time}'
 target_concept: Autonomous Track Evaluation ({prefix})
-source_layer: 18
-receiver_layer: 18
+source_layer: {source_layer}
+receiver_layer: {receiver_layer}
 top1_accuracy: {accuracy:.1f}
 neighborhood_correlation: {correlation:.4f}
 cosine_similarity: {cos_sim:.4f}
@@ -460,6 +470,46 @@ tags:
         result_str = (
             f"Trial {self.total_trials_run}: Acc={trial_result['accuracy']:.1f}%, "
             f"Corr={trial_result['correlation']:.3f} (WLCOMM)"
+        )
+        return topic, result_str
+
+    def _run_alignq_trial(self) -> Tuple[str, str]:
+        """Alignment Congruence Optimization: samples a (layer pair, calibration
+        size, centering) combination and measures both how well the resulting
+        rotation fits its own calibration data (congruence) and how well it
+        generalizes to held-out concepts (cosine similarity / top-1 accuracy).
+
+        _log_trial_note's "correlation" slot holds the congruence
+        coefficient here, not a neighborhood correlation - there isn't a
+        dedicated field for it in the shared note schema, and congruence is
+        the closer analog of the two (both are bounded similarity scores
+        used as a pass/fail threshold), whereas the note's hardcoded 0.80
+        success threshold means "success" migrated to "a well-fit
+        rotation" here rather than the sense the other tracks give it.
+        """
+        optimizer = self._get_congruence_optimizer()
+        trial_params = {k: random.choice(v) for k, v in ALIGNQ_PARAM_GRID.items()}
+
+        self.total_trials_run += 1
+        result = optimizer.run_trial(trial_params)
+
+        self._log_trial_note(
+            trial_id=self.total_trials_run,
+            params=trial_params,
+            accuracy=result["accuracy"] * 100,
+            correlation=result["congruence"],
+            cos_sim=result["cosine_sim"],
+            prefix="ALIGNQ",
+            source_layer=result["source_layer"],
+            receiver_layer=result["receiver_layer"],
+        )
+
+        topic = "Alignment Congruence Optimization"
+        result_str = (
+            f"Trial {self.total_trials_run}: L{result['source_layer']}->L{result['receiver_layer']} "
+            f"calib={result['calibration_size']} center={result['center']} | "
+            f"Congruence={result['congruence']:.3f} HeldoutAcc={result['accuracy'] * 100:.1f}% "
+            f"CosSim={result['cosine_sim']:.3f}"
         )
         return topic, result_str
 
