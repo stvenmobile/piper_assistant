@@ -22,6 +22,7 @@ WHISPER_SAMPLE_RATE = 16000
 # Common wake word variations and phonetic misspellings from Whisper
 WAKE_WORDS = ["piper", "hey piper", "hi piper", "paper", "hey paper", "hi paper"]
 
+
 class PiperListener:
     def __init__(
         self,
@@ -111,7 +112,7 @@ class PiperListener:
 
     def listen_for_wake_word_and_command(self, max_command_duration: float = 6.0, silence_timeout: float = 1.0, idle_timeout: float = 3.0) -> str:
         """
-        Listens in non-blocking windows for wake-word activation.
+        Listens in non-blocking windows for wake-word activation without printing ambient speech.
         Yields control back every `idle_timeout` seconds if no speech is present.
         """
         chunk_duration = 0.1
@@ -155,15 +156,13 @@ class PiperListener:
         if not heard_text:
             return ""
 
-        print(f"[Listener Heard]: \"{heard_text}\"")
-
         clean_lower = heard_text.lower()
         wake_detected = any(w in clean_lower for w in WAKE_WORDS)
 
         if not wake_detected:
             return ""
 
-        # Return full text so main.py handles chime and state transition
+        # Only return when the wake word is confirmed
         return heard_text
 
     def listen_command_window(self, max_duration: float = 6.0, silence_timeout: float = 1.0) -> str:
