@@ -10,7 +10,7 @@ import math
 import threading
 from pathlib import Path
 from datetime import datetime
-from typing import TypedDict, Optional, Literal, List, Dict, Any, Tuple
+from typing import TypedDict, Optional, Literal, List, Dict, Any, Tuple, Callable
 import re
 import random
 import yaml
@@ -213,6 +213,21 @@ class PiperSupervisor:
         # is in flight to reach its own natural stopping point.
         self.research_lock = threading.Lock()
 
+        # Explicit prefix -> handler registry, checked against whatever
+        # get_active_goal_metadata() reports as the currently active
+        # track(s). Previously this was an if/elif chain that treated any
+        # unrecognized prefix as WLCOMM by default - so a goal file whose
+        # prefix didn't happen to match one of the two special-cased
+        # strings (e.g. ACCIT vs. a stray "ACURATE" typo, or P2OPT if ever
+        # reactivated) would silently run WLCOMM's trial logged under the
+        # wrong label instead of failing loudly. See
+        # autonomous_introspection_node for the lookup + explicit skip.
+        self.trial_handlers: Dict[str, Callable[[], Tuple[str, str]]] = {
+            "ACCIT": self._run_accit_trial,
+            "P3LOOP": self._run_p3loop_trial,
+            "WLCOMM": self._run_wlcomm_trial,
+        }
+
         self.graph = self._build_graph()
         print("[Supervisor] Initialization complete. Active multi-track goals and dynamic cycle prefixes loaded.")
 
@@ -376,6 +391,75 @@ tags:
 """
         note_file.write_text(content, encoding="utf-8")
 
+    def _run_accit_trial(self) -> Tuple[str, str]:
+        """Concept Curation & Interestingness Scoring Pipeline."""
+        self.total_trials_run += 1
+        score_val = round(random.uniform(0.72, 0.96), 3)
+
+        self._log_trial_note(
+            trial_id=self.total_trials_run,
+            params={"score": score_val},
+            accuracy=score_val * 100,
+            correlation=0.992,
+            cos_sim=0.785,
+            prefix="ACCIT"
+        )
+
+        topic = "Autonomous Concept Curation & Tagging"
+        result_str = (
+            f"Curation Run {self.total_trials_run}: Scanned semantic graph, "
+            f"Computed composite interest score = {score_val} (Threshold >= 0.85)"
+        )
+        return topic, result_str
+
+    def _run_p3loop_trial(self) -> Tuple[str, str]:
+        """Phase 3 Closed-Loop Signaling Game Round."""
+        game = self._get_signaling_engine()
+        game_result = game.run_round() if hasattr(game, "run_round") else {"accuracy": 91.7, "correlation": 0.990, "mean_cossim": 0.770}
+
+        trial_params = {"temperature": 0.08, "cos_weight": 6.0, "infonce_weight": 2.0, "margin_weight": 1.0, "lr": 0.0003}
+        self.total_trials_run += 1
+
+        self._log_trial_note(
+            trial_id=self.total_trials_run,
+            params=trial_params,
+            accuracy=game_result.get("accuracy", 91.7),
+            correlation=game_result.get("correlation", 0.990),
+            cos_sim=game_result.get("mean_cossim", 0.770),
+            prefix="P3LOOP"
+        )
+
+        topic = "Phase 3 Closed-Loop Signaling"
+        result_str = (
+            f"Signaling Round {self.total_trials_run}: Acc={game_result.get('accuracy', 91.7):.1f}%, "
+            f"Corr={game_result.get('correlation', 0.990):.3f}"
+        )
+        return topic, result_str
+
+    def _run_wlcomm_trial(self) -> Tuple[str, str]:
+        """Phase 2 Parameter Optimization (Wordless Continuous Latent Communication)."""
+        engine = self._get_optimizer_engine()
+        trial_params = {k: random.choice(v) for k, v in self.param_grid.items()}
+
+        self.total_trials_run += 1
+        trial_result = engine.run_trial(trial_params, epochs=350)
+
+        self._log_trial_note(
+            trial_id=self.total_trials_run,
+            params=trial_params,
+            accuracy=trial_result["accuracy"],
+            correlation=trial_result["correlation"],
+            cos_sim=trial_result["mean_cossim"],
+            prefix="WLCOMM"
+        )
+
+        topic = "Phase 2 Parameter Optimization"
+        result_str = (
+            f"Trial {self.total_trials_run}: Acc={trial_result['accuracy']:.1f}%, "
+            f"Corr={trial_result['correlation']:.3f} (WLCOMM)"
+        )
+        return topic, result_str
+
     def autonomous_introspection_node(self, state: PiperBrainState) -> PiperBrainState:
         """Executes throttled background parameter sweeps, signaling rounds, or concept curation runs."""
         now = time.time()
@@ -403,78 +487,28 @@ tags:
                 _, active_prefixes = get_active_goal_metadata()
                 cycle_prefix = random.choice(active_prefixes)
 
-                if cycle_prefix == "ACCIT":
-                    # Execute Concept Curation & Interestingness Scoring Pipeline
-                    self.total_trials_run += 1
-                    score_val = round(random.uniform(0.72, 0.96), 3)
-
-                    self._log_trial_note(
-                        trial_id=self.total_trials_run,
-                        params={"score": score_val},
-                        accuracy=score_val * 100,
-                        correlation=0.992,
-                        cos_sim=0.785,
-                        prefix="ACCIT"
-                    )
-
-                    topic = "Autonomous Concept Curation & Tagging"
+                handler = self.trial_handlers.get(cycle_prefix)
+                if handler is None:
+                    # An active goal's prefix has no registered handler -
+                    # skip this cycle loudly instead of silently running a
+                    # different track under the wrong label (the bug this
+                    # registry replaces). last_idle_run_time still advances
+                    # so this doesn't spin retrying every few seconds, but
+                    # hourly_experiment_count does not, since no trial ran.
+                    topic = "Unrecognized Track"
                     result_str = (
-                        f"Curation Run {self.total_trials_run}: Scanned semantic graph, "
-                        f"Computed composite interest score = {score_val} (Threshold >= 0.85)"
+                        f"Active goal prefix '{cycle_prefix}' has no registered trial handler "
+                        f"(known: {sorted(self.trial_handlers.keys())}) - skipping this cycle."
                     )
-
-                elif cycle_prefix == "P3LOOP":
-                    # Execute Phase 3 Closed-Loop Signaling Game Round
-                    game = self._get_signaling_engine()
-                    game_result = game.run_round() if hasattr(game, "run_round") else {"accuracy": 91.7, "correlation": 0.990, "mean_cossim": 0.770}
-
-                    trial_params = {"temperature": 0.08, "cos_weight": 6.0, "infonce_weight": 2.0, "margin_weight": 1.0, "lr": 0.0003}
-                    self.total_trials_run += 1
-
-                    self._log_trial_note(
-                        trial_id=self.total_trials_run,
-                        params=trial_params,
-                        accuracy=game_result.get("accuracy", 91.7),
-                        correlation=game_result.get("correlation", 0.990),
-                        cos_sim=game_result.get("mean_cossim", 0.770),
-                        prefix="P3LOOP"
-                    )
-
-                    topic = "Phase 3 Closed-Loop Signaling"
-                    result_str = (
-                        f"Signaling Round {self.total_trials_run}: Acc={game_result.get('accuracy', 91.7):.1f}%, "
-                        f"Corr={game_result.get('correlation', 0.990):.3f}"
-                    )
-
+                    print(f"[Supervisor: IDLE] {result_str}")
                 else:
-                    # Default WLCOMM Optimization Trial
-                    engine = self._get_optimizer_engine()
-                    trial_params = {k: random.choice(v) for k, v in self.param_grid.items()}
-
-                    self.total_trials_run += 1
-                    trial_result = engine.run_trial(trial_params, epochs=350)
-
-                    self._log_trial_note(
-                        trial_id=self.total_trials_run,
-                        params=trial_params,
-                        accuracy=trial_result["accuracy"],
-                        correlation=trial_result["correlation"],
-                        cos_sim=trial_result["mean_cossim"],
-                        prefix="WLCOMM"
-                    )
-
-                    topic = "Phase 2 Parameter Optimization"
-                    result_str = (
-                        f"Trial {self.total_trials_run}: Acc={trial_result['accuracy']:.1f}%, "
-                        f"Corr={trial_result['correlation']:.3f} (WLCOMM)"
-                    )
+                    topic, result_str = handler()
+                    self.hourly_experiment_count += 1
+                    print(f"[Supervisor: IDLE] Routine complete -> {result_str}")
 
                 self.last_idle_run_time = time.time()
-                self.hourly_experiment_count += 1
-
                 state["introspection_topic"] = topic
                 state["introspection_result"] = result_str
-                print(f"[Supervisor: IDLE] Routine complete -> {result_str}")
         except Exception as e:
             print(f"[Supervisor: IDLE] Introspection encountered error: {e}")
             state["introspection_topic"] = "Error"
