@@ -134,7 +134,7 @@ def get_active_goal_metadata() -> Tuple[str, List[str]]:
     Returns: (context_string, list_of_active_prefixes)
     """
     if not GOALS_DIR.exists():
-        return ("", ["WLCOMM"])
+        return ("", [])
 
     goal_entries = []
     active_prefixes = []
@@ -164,8 +164,11 @@ def get_active_goal_metadata() -> Tuple[str, List[str]]:
         except Exception as e:
             print(f"[Supervisor Goal Load Error] Could not read {goal_file.name}: {e}")
 
-    if not active_prefixes:
-        active_prefixes = ["WLCOMM"]
+    # No hardcoded fallback here on purpose: an empty list means "nothing
+    # is marked status: active right now" and should genuinely idle the
+    # research loop (see autonomous_introspection_node), rather than
+    # silently defaulting to running some particular track whether or not
+    # the vault actually says it's active.
 
     context_str = "\n\nACTIVE AUTONOMOUS GOALS & RESEARCH TRACKS:\n" + "\n".join(goal_entries) if goal_entries else ""
     return (context_str, active_prefixes)
@@ -485,6 +488,20 @@ tags:
         try:
             with self.research_lock:
                 _, active_prefixes = get_active_goal_metadata()
+
+                if not active_prefixes:
+                    # No goal file is marked status: active - idle for
+                    # real rather than defaulting to some track the vault
+                    # never actually asked to run.
+                    topic = "No Active Goal"
+                    result_str = "No goal file is marked status: active - idling until one is."
+                    print(f"[Supervisor: IDLE] {result_str}")
+                    self.last_idle_run_time = time.time()
+                    state["introspection_topic"] = topic
+                    state["introspection_result"] = result_str
+                    state["output_text"] = None
+                    return state
+
                 cycle_prefix = random.choice(active_prefixes)
 
                 handler = self.trial_handlers.get(cycle_prefix)
