@@ -375,6 +375,14 @@ class PiperSupervisor:
         note_file = EXPERIMENTS_DIR / f"{exp_id}.md"
 
         success = accuracy >= 85.0 and correlation >= 0.80
+        # params was always accepted here but never actually written into
+        # the note - every track's sampled hyperparameters (WLCOMM's
+        # temperature/cos_weight/etc, ALIGNQ's calibration_size/center)
+        # were computed and used for the trial, then lost the moment this
+        # function returned. Dumped as inline YAML so it round-trips
+        # through the same yaml.safe_load() get_active_goal_metadata()
+        # and any future analysis script would use.
+        params_yaml = yaml.safe_dump(params, default_flow_style=True).strip()
         content = f"""---
 id: {exp_id}
 type: experiment
@@ -383,6 +391,7 @@ date: '{iso_time}'
 target_concept: Autonomous Track Evaluation ({prefix})
 source_layer: {source_layer}
 receiver_layer: {receiver_layer}
+params: {params_yaml}
 top1_accuracy: {accuracy:.1f}
 neighborhood_correlation: {correlation:.4f}
 cosine_similarity: {cos_sim:.4f}
@@ -398,6 +407,7 @@ tags:
 **Timestamp**: {now_dt.strftime("%Y-%m-%d %H:%M:%S")}
 
 ## 1. Evaluation Results
+- **Parameters**: `{params}`
 - **Primary Metric / Score**: `{accuracy:.1f}`
 - **Neighborhood Correlation**: `{correlation:.4f}`
 - **Cosine Alignment**: `{cos_sim:.4f}`
