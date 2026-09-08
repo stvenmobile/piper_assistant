@@ -32,7 +32,12 @@ if str(WORKSPACE_DIR) not in sys.path:
 from piper_brain.tools import get_current_datetime_str, get_local_weather, get_latest_experiment_summary
 from piper_brain.signaling_game import SignalingGame
 from nonverbal_tools.receiver_optimizer import AutonomousReceiverOptimizer, PARAM_GRID
-from piper_geometry.congruence_optimizer import CongruenceOptimizer, PARAM_GRID as ALIGNQ_PARAM_GRID
+from piper_geometry.congruence_optimizer import (
+    CongruenceOptimizer,
+    PARAM_GRID as ALIGNQ_PARAM_GRID,
+    CROSS_MODEL_PARAM_GRID as XALIGNQ_PARAM_GRID,
+    DEFAULT_TARGET_MODEL as XALIGNQ_TARGET_MODEL,
+)
 
 # Directory and File Paths
 PROFILES_DIR = WORKSPACE_DIR / "profiles"
@@ -211,6 +216,7 @@ class PiperSupervisor:
         self.optimizer_engine = None
         self.signaling_engine = None
         self.congruence_optimizer = None
+        self.cross_model_optimizer = None
         self.param_grid = PARAM_GRID
         self.total_trials_run = 0
 
@@ -241,6 +247,7 @@ class PiperSupervisor:
             "P3LOOP": self._run_p3loop_trial,
             "WLCOMM": self._run_wlcomm_trial,
             "ALIGNQ": self._run_alignq_trial,
+            "XALIGNQ": self._run_xalignq_trial,
         }
 
         self.graph = self._build_graph()
@@ -264,6 +271,12 @@ class PiperSupervisor:
         if self.congruence_optimizer is None:
             self.congruence_optimizer = CongruenceOptimizer()
         return self.congruence_optimizer
+
+    def _get_cross_model_optimizer(self) -> CongruenceOptimizer:
+        """Lazy-loads the XALIGNQ optimizer (two residual extractors, one per model) on first use."""
+        if self.cross_model_optimizer is None:
+            self.cross_model_optimizer = CongruenceOptimizer(target_model_name=XALIGNQ_TARGET_MODEL)
+        return self.cross_model_optimizer
 
     def evaluate_audio_event_node(self, state: PiperBrainState) -> PiperBrainState:
         raw_text = (state.get("input_text") or "").strip()
@@ -526,6 +539,41 @@ tags:
         topic = "Alignment Congruence Optimization"
         result_str = (
             f"Trial {self.total_trials_run}: L{result['source_layer']}->L{result['receiver_layer']} "
+            f"calib={result['calibration_size']} center={result['center']} | "
+            f"Congruence={result['congruence']:.3f} HeldoutAcc={result['accuracy'] * 100:.1f}% "
+            f"CosSim={result['cosine_sim']:.3f}"
+        )
+        return topic, result_str
+
+    def _run_xalignq_trial(self) -> Tuple[str, str]:
+        """Cross-Model Alignment Congruence: same measurement as ALIGNQ
+        (congruence + held-out accuracy/cosine similarity), but source and
+        receiver layers come from two different models
+        (XALIGNQ_TARGET_MODEL vs CongruenceOptimizer's default) rather than
+        two layers of one model. Layer choice is fixed (not swept) for
+        this first cross-model batch - see CROSS_MODEL_PARAM_GRID.
+        """
+        optimizer = self._get_cross_model_optimizer()
+        trial_params = {k: random.choice(v) for k, v in XALIGNQ_PARAM_GRID.items()}
+
+        self.total_trials_run += 1
+        result = optimizer.run_trial(trial_params)
+
+        self._log_trial_note(
+            trial_id=self.total_trials_run,
+            params=trial_params,
+            accuracy=result["accuracy"] * 100,
+            correlation=result["congruence"],
+            cos_sim=result["cosine_sim"],
+            prefix="XALIGNQ",
+            source_layer=result["source_layer"],
+            receiver_layer=result["receiver_layer"],
+        )
+
+        topic = "Cross-Model Alignment Congruence"
+        result_str = (
+            f"Trial {self.total_trials_run}: {optimizer.model_name} L{result['source_layer']} -> "
+            f"{optimizer.target_model_name} L{result['receiver_layer']} "
             f"calib={result['calibration_size']} center={result['center']} | "
             f"Congruence={result['congruence']:.3f} HeldoutAcc={result['accuracy'] * 100:.1f}% "
             f"CosSim={result['cosine_sim']:.3f}"

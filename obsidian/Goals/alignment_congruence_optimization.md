@@ -2,14 +2,23 @@
 id: GOAL-ALIGNMENT-CONGRUENCE-OPTIMIZATION
 title: Alignment Congruence Optimization
 prefix: ALIGNQ
-status: active
+status: paused
 created: 2026-09-07
 target_model: Qwen/Qwen2.5-0.5B-Instruct
 ---
 
 # Goal: Alignment Congruence Optimization
 
-**Status**: `active`
+**Status**: `paused`
+
+**Paused 2026-09-08**: 289 trials collected across the full calibration
+size x centering x layer-pair grid, hypothesis validated (see Success
+Criteria below, all met). Moving to [[cross_model_alignment_congruence]]
+(prefix XALIGNQ), which reuses this track's exact measurement approach on
+two different models instead of two layers of one. Reactivate if
+cross-model results suggest revisiting layer choice or calibration
+strategy here.
+
 **Target**: Assess and improve the quality of Procrustes rotations between
 residual-stream layers before trusting them for concept-transfer testing,
 by measuring two distinct things every trial rather than one:

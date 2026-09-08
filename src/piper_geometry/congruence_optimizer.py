@@ -1,11 +1,10 @@
 """
-Piper Geometry: Alignment Congruence Optimizer (ALIGNQ research track).
+Piper Geometry: Alignment Congruence Optimizer (ALIGNQ / XALIGNQ research tracks).
 
 Random-search trial loop: each call to run_trial() samples a (layer pair,
-calibration set size, centering choice) combination from PARAM_GRID,
+calibration set size, centering choice) combination from a param grid,
 computes an orthogonal Procrustes rotation between two residual-stream
-layers of the same model, and measures two different things that are easy
-to conflate:
+layers, and measures two different things that are easy to conflate:
 
 - In-sample congruence: how well an orthogonal rotation fits the
   calibration data it was built from, via the SVD singular values that
@@ -20,6 +19,17 @@ Logging both per trial, across many (layer, calibration size, centering)
 combinations, is the point - a rotation can fit its calibration set
 closely and still fail to generalize, and only comparing the two reveals
 that instead of a single cosine-similarity number taken in isolation.
+
+CongruenceOptimizer also supports a target_model_name distinct from
+model_name (the XALIGNQ track): source_layer and receiver_layer are then
+indices into two different models rather than two layers of one. Same
+math throughout - the SVD-based rotation and the congruence formula don't
+assume square/equal-dimension inputs, since source and receiver vectors
+only ever interact via matrix products (A.t() @ B, then (x - mean) @ W),
+which are well-defined between differently-shaped spaces. The only real
+change for the cross-model case is _extract_pair needing two separate
+forward passes (one per model) instead of one pass capturing both layers
+of a single model at once.
 """
 
 import json
@@ -54,6 +64,25 @@ PARAM_GRID = {
     "center": [True, False],
 }
 
+# XALIGNQ (cross-model): starting with the smallest reasonable model pair
+# (Qwen2.5-0.5B-Instruct, 24 layers vs TinyLlama-1.1B-Chat-v1.0, 22
+# layers) before attempting anything heavier, since two models resident on
+# the Jetson at once uses meaningfully more memory than ALIGNQ's one.
+# Layer choice is a single fixed pair rather than a swept list, both
+# picked at ~75% depth (Qwen L18/24, TinyLlama L17/22) - the region
+# ALIGNQ's same-model sweep found carried the most abstract, transferable
+# structure - rather than swept, to keep this first cross-model batch's
+# variables to calibration_size/center like ALIGNQ's first batch was, and
+# because ALIGNQ's own "shallow source, deep receiver" finding was about
+# one model's evolving residual stream, not a reason to expect two
+# separate models want different relative depths from each other.
+DEFAULT_TARGET_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+CROSS_MODEL_PARAM_GRID = {
+    "layer_pair": [(18, 17)],
+    "calibration_size": [12, 24, 48, 96, 192, 280],
+    "center": [True, False],
+}
+
 # Fixed across every trial regardless of calibration_size, so accuracy and
 # cosine-similarity numbers stay comparable trial to trial - only the
 # calibration side of the sweep should vary between runs.
@@ -71,11 +100,16 @@ def _load_all_concepts() -> List[str]:
 
 
 class CongruenceOptimizer:
-    """Lazily loads one extractor for DEFAULT_MODEL and reuses it across trials."""
+    """Lazily loads one extractor per distinct model name and reuses them
+    across trials. When target_model_name equals model_name (the default -
+    ALIGNQ's same-model case), source and target share one extractor and
+    one forward pass per concept, same as before this class supported a
+    second model at all."""
 
-    def __init__(self, model_name: str = DEFAULT_MODEL):
+    def __init__(self, model_name: str = DEFAULT_MODEL, target_model_name: str = None):
         self.model_name = model_name
-        self._extractor: ResidualExtractor = None
+        self.target_model_name = target_model_name or model_name
+        self._extractors: Dict[str, ResidualExtractor] = {}
 
         all_concepts = _load_all_concepts()
         rng = random.Random(HELDOUT_SEED)
@@ -84,19 +118,31 @@ class CongruenceOptimizer:
         self.heldout_concepts = shuffled[:HELDOUT_SIZE]
         self.calibration_pool = shuffled[HELDOUT_SIZE:]
 
-    def _get_extractor(self) -> ResidualExtractor:
-        if self._extractor is None:
-            self._extractor = ResidualExtractor(model_name_or_path=self.model_name)
-        return self._extractor
+    def _get_extractor(self, model_name: str) -> ResidualExtractor:
+        if model_name not in self._extractors:
+            self._extractors[model_name] = ResidualExtractor(model_name_or_path=model_name)
+        return self._extractors[model_name]
 
     def _extract_pair(self, concepts: List[str], source_layer: int, receiver_layer: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """One forward pass per concept captures both layers at once."""
-        extractor = self._get_extractor()
+        source_extractor = self._get_extractor(self.model_name)
+        target_extractor = self._get_extractor(self.target_model_name)
         source_vecs, target_vecs = [], []
-        for concept in concepts:
-            acts = extractor.extract_activations(prompt=concept, target_layers=[source_layer, receiver_layer])
-            source_vecs.append(acts[source_layer])
-            target_vecs.append(acts[receiver_layer])
+
+        if source_extractor is target_extractor:
+            # Same model: one forward pass per concept captures both layers at once.
+            for concept in concepts:
+                acts = source_extractor.extract_activations(prompt=concept, target_layers=[source_layer, receiver_layer])
+                source_vecs.append(acts[source_layer])
+                target_vecs.append(acts[receiver_layer])
+        else:
+            # Different models: each needs its own forward pass, since a
+            # single call to extract_activations only runs one model.
+            for concept in concepts:
+                src_acts = source_extractor.extract_activations(prompt=concept, target_layers=[source_layer])
+                tgt_acts = target_extractor.extract_activations(prompt=concept, target_layers=[receiver_layer])
+                source_vecs.append(src_acts[source_layer])
+                target_vecs.append(tgt_acts[receiver_layer])
+
         return torch.stack(source_vecs), torch.stack(target_vecs)
 
     def run_trial(self, params: Dict) -> Dict:

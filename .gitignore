@@ -27,6 +27,12 @@ checkpoints/
 *.tmp
 *.log
 
+# Experiment notes: a live log the autonomous research loop writes to
+# constantly (dozens of files per overnight run), not source-controlled
+# content - copying/syncing these between machines was already producing
+# spurious tracked-file diffs. Kept on disk, no longer in git.
+obsidian/Experiments/
+
 # Audio Caches & Recordings
 *.wav
 *.mp3
