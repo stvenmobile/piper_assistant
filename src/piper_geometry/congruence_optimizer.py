@@ -109,6 +109,17 @@ class CongruenceOptimizer:
         source_calib, target_calib = self._extract_pair(calibration_concepts, source_layer, receiver_layer)
         source_heldout, target_heldout = self._extract_pair(self.heldout_concepts, source_layer, receiver_layer)
 
+        # ResidualExtractor loads the model in float16 on CUDA for speed
+        # and moves captured vectors to CPU without changing dtype, so
+        # they arrive here as CPU tensors still in half precision.
+        # torch.linalg.svd has no CPU kernel for Half - only float32+ - so
+        # this cast is required, not just precision hygiene (matches the
+        # same cast aligner.py's compute_procrustes already does).
+        source_calib = source_calib.to(torch.float32)
+        target_calib = target_calib.to(torch.float32)
+        source_heldout = source_heldout.to(torch.float32)
+        target_heldout = target_heldout.to(torch.float32)
+
         source_mean = source_calib.mean(dim=0, keepdim=True) if center else torch.zeros(1, source_calib.shape[1])
         target_mean = target_calib.mean(dim=0, keepdim=True) if center else torch.zeros(1, target_calib.shape[1])
 
