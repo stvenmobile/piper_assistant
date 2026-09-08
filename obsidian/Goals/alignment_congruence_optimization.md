@@ -32,8 +32,14 @@ Implemented in `src/piper_geometry/congruence_optimizer.py`
 (`CongruenceOptimizer.run_trial`), dispatched from
 `PiperSupervisor._run_alignq_trial`:
 - **Layer pair**: (6,10), (8,14), (10,16), (12,18) on the target model
-- **Calibration set size**: 12 / 24 / 48 concepts, sampled from
-  `data/checkpoints/concepts_dictionary.json`
+- **Calibration set size**: 12 / 24 / 48 / 96 / 192 / 280 concepts, sampled
+  from `data/checkpoints/concepts_dictionary.json` (280 is the pool's
+  practical ceiling - 300 total concepts minus 16 reserved for held-out -
+  not the 896-dim hidden size; the first 27 trials at 12-48 showed
+  congruence pinned near 1.0 regardless of layer pair, the expected result
+  when calibration size is far below the embedding dimension, so this was
+  widened to see whether congruence trends down as size approaches what
+  the dictionary can actually provide)
 - **Centering**: whether to mean-subtract calibration vectors before
   computing the rotation (aligner.py doesn't; align_agents.py does - this
   was an unmeasured inconsistency between the two)

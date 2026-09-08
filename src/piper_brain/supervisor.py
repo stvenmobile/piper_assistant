@@ -44,8 +44,13 @@ CHECKPOINT_PATH = WORKSPACE_DIR / "data" / "checkpoints" / "comm_adapter_latest.
 CONFIG_FILE = WORKSPACE_DIR / "config.yaml"
 
 # Throttling Configuration
-IDLE_COOLDOWN_SECONDS = 180  # 3 minutes between background optimization runs
-MAX_IDLE_EXPERIMENTS_PER_HOUR = 12
+# Note: at the old 180s/12-per-hour pair, spacing alone permitted 3600/180
+# = 20 trials/hour, so the hourly cap - not the cooldown - was already the
+# binding constraint; halving cooldown without raising the cap would have
+# changed nothing once the first 12 fired. Both raised together here so
+# the shorter cooldown actually reflects a higher sustained rate.
+IDLE_COOLDOWN_SECONDS = 90  # 1.5 minutes between background optimization runs
+MAX_IDLE_EXPERIMENTS_PER_HOUR = 24
 
 WAKE_PATTERNS = [
     r"\bhi\s+piper\b",

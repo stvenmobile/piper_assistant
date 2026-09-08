@@ -37,9 +37,20 @@ CONCEPTS_PATH = REPO_ROOT / "data" / "checkpoints" / "concepts_dictionary.json"
 
 DEFAULT_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
+# calibration_size tops out at 280, not DEFAULT_MODEL's 896-dim hidden
+# size, because that's the ceiling the concept dictionary's pool actually
+# allows (300 total concepts - HELDOUT_SIZE reserved below = 284,
+# rounded down for headroom) - the first 27 real trials at 12-48 showed
+# congruence pinned near 1.0 regardless of layer pair, exactly the
+# structurally-guaranteed near-perfect in-sample fit expected when
+# calibration_size is far below the embedding dimension. Pushing size
+# toward this pool's actual ceiling won't fully escape that regime, but
+# should reveal whether congruence trends down as it's approached -
+# itself informative - and remains capped below 896 until the concept
+# dictionary grows larger than it is today.
 PARAM_GRID = {
     "layer_pair": [(6, 10), (8, 14), (10, 16), (12, 18)],
-    "calibration_size": [12, 24, 48],
+    "calibration_size": [12, 24, 48, 96, 192, 280],
     "center": [True, False],
 }
 
