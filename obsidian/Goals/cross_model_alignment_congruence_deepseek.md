@@ -2,7 +2,7 @@
 id: GOAL-CROSS-MODEL-ALIGNMENT-CONGRUENCE-DEEPSEEK
 title: Cross-Model Alignment Congruence (DeepSeek-R1-Distill-Qwen-1.5B)
 prefix: XALIGNDS
-status: active
+status: paused
 created: 2026-09-08
 source_model: Qwen/Qwen2.5-0.5B-Instruct
 target_model: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
@@ -10,7 +10,20 @@ target_model: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 
 # Goal: Cross-Model Alignment Congruence (DeepSeek-R1-Distill-Qwen-1.5B)
 
-**Status**: `active`
+**Status**: `paused`
+
+**Paused 2026-09-08**: 96 trials collected. Cosine similarity tracked
+XALIGNQ's TinyLlama results closely (0.904 vs 0.912 at calibration_size=280),
+confirming the calibration-size trend generalizes across target models -
+but held-out accuracy was notably worse (8.9-9.7% vs TinyLlama's
+25-25.6%) at matching calibration sizes despite similar cosine similarity,
+a genuine and still-unexplained divergence worth remembering. Moving to
+[[cross_model_alignment_congruence_phi4]] (prefix XALIGNPHI), a
+meaningfully larger model, per explicit request to move on to Phi-4-mini
+next. Reactivate to dig into the accuracy-vs-cosine-similarity divergence
+here specifically, or to extend this pairing's own per-cell sample sizes,
+if warranted later.
+
 **Target**: Same measurement as [[cross_model_alignment_congruence]]
 (congruence + held-out cosine similarity/accuracy), on a second, larger
 model pairing - a moderate step up in size before attempting anything as

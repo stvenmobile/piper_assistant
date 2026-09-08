@@ -99,6 +99,20 @@ CROSS_MODEL_CONFIGS = {
             "center": [True, False],
         },
     },
+    # ~3.8B params, ~7.6GB in fp16 - a meaningfully bigger step than
+    # XALIGNDS's ~1.5B. Jetson memory measured at 8.2GB (TinyLlama) then
+    # 9.7GB (DeepSeek) resident alongside Qwen + Ollama's own model;
+    # extrapolating the ~1.5GB-per-extra-billion-fp16-params trend puts
+    # this around 14GB of the Jetson's 15.3GB - real risk of getting
+    # close to the ceiling, unconfirmed until it's actually run.
+    "XALIGNPHI": {
+        "target_model": "microsoft/Phi-4-mini-instruct",
+        "param_grid": {
+            "layer_pair": [(18, 24)],  # Qwen L18/24 (75%), Phi-4-mini L24/32 (75%)
+            "calibration_size": [12, 24, 48, 96, 192, 280],
+            "center": [True, False],
+        },
+    },
 }
 
 # Fixed across every trial regardless of calibration_size, so accuracy and
