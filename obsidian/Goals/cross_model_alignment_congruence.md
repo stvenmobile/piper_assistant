@@ -2,7 +2,7 @@
 id: GOAL-CROSS-MODEL-ALIGNMENT-CONGRUENCE
 title: Cross-Model Alignment Congruence
 prefix: XALIGNQ
-status: active
+status: paused
 created: 2026-09-08
 source_model: Qwen/Qwen2.5-0.5B-Instruct
 target_model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
@@ -10,7 +10,18 @@ target_model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 
 # Goal: Cross-Model Alignment Congruence
 
-**Status**: `active`
+**Status**: `paused`
+
+**Paused 2026-09-08**: 63 trials collected, hit 0.912 cosine similarity
+at calibration_size=280 (close to vec2vec's published 0.92 benchmark for
+cross-model translation), confirmed Jetson memory has real headroom.
+Moving to [[cross_model_alignment_congruence_deepseek]] (prefix
+XALIGNDS), a moderate step up in target model size, to see whether a
+larger model aligns better/worse/similarly and to confirm the surprising
+center=False > center=True finding on a second pairing before trusting
+it. Reactivate to extend this pairing's own data (e.g. sweeping layer
+choice) if the DeepSeek results suggest it's worth revisiting.
+
 **Target**: Extend [[alignment_congruence_optimization]]'s validated
 measurement approach (in-sample congruence + held-out cosine similarity/
 accuracy) from two layers of one model to two layers of two genuinely

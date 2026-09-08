@@ -64,23 +64,41 @@ PARAM_GRID = {
     "center": [True, False],
 }
 
-# XALIGNQ (cross-model): starting with the smallest reasonable model pair
-# (Qwen2.5-0.5B-Instruct, 24 layers vs TinyLlama-1.1B-Chat-v1.0, 22
-# layers) before attempting anything heavier, since two models resident on
-# the Jetson at once uses meaningfully more memory than ALIGNQ's one.
-# Layer choice is a single fixed pair rather than a swept list, both
-# picked at ~75% depth (Qwen L18/24, TinyLlama L17/22) - the region
-# ALIGNQ's same-model sweep found carried the most abstract, transferable
-# structure - rather than swept, to keep this first cross-model batch's
-# variables to calibration_size/center like ALIGNQ's first batch was, and
-# because ALIGNQ's own "shallow source, deep receiver" finding was about
-# one model's evolving residual stream, not a reason to expect two
-# separate models want different relative depths from each other.
-DEFAULT_TARGET_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-CROSS_MODEL_PARAM_GRID = {
-    "layer_pair": [(18, 17)],
-    "calibration_size": [12, 24, 48, 96, 192, 280],
-    "center": [True, False],
+# Cross-model tracks (XALIGNQ, XALIGNDS, ...): one entry per (source
+# model, target model) pairing being tested, keyed by the prefix the goal
+# file/trial notes use. Each is a smallest-reasonable-step-up from the
+# last: Qwen2.5-0.5B-Instruct -> TinyLlama-1.1B-Chat-v1.0 first (both
+# small, confirmed comfortable on the Jetson's memory), then
+# DeepSeek-R1-Distill-Qwen-1.5B (built on the Qwen2.5-1.5B architecture -
+# 28 layers, ~3GB in fp16) as the next moderate step, before attempting
+# anything as large as Phi-4-mini-instruct (~3.8B).
+#
+# Layer choice is a single fixed pair per config, not a swept list, in
+# each case picked at ~75% depth in both models - the region ALIGNQ's
+# same-model sweep found carried the most abstract, transferable
+# structure - rather than swept, to keep each new pairing's first batch
+# limited to calibration_size/center like ALIGNQ's own first batch was.
+# ALIGNQ's "shallow source, deep receiver" finding was about one model's
+# evolving residual stream, not a reason to expect two separate models to
+# want different relative depths from each other, so both sides of every
+# pairing here use the same ~75% mark rather than reusing that split.
+CROSS_MODEL_CONFIGS = {
+    "XALIGNQ": {
+        "target_model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        "param_grid": {
+            "layer_pair": [(18, 17)],  # Qwen L18/24 (75%), TinyLlama L17/22 (~77%)
+            "calibration_size": [12, 24, 48, 96, 192, 280],
+            "center": [True, False],
+        },
+    },
+    "XALIGNDS": {
+        "target_model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+        "param_grid": {
+            "layer_pair": [(18, 21)],  # Qwen L18/24 (75%), DeepSeek-R1-Distill L21/28 (75%)
+            "calibration_size": [12, 24, 48, 96, 192, 280],
+            "center": [True, False],
+        },
+    },
 }
 
 # Fixed across every trial regardless of calibration_size, so accuracy and

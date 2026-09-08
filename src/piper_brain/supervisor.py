@@ -35,8 +35,7 @@ from nonverbal_tools.receiver_optimizer import AutonomousReceiverOptimizer, PARA
 from piper_geometry.congruence_optimizer import (
     CongruenceOptimizer,
     PARAM_GRID as ALIGNQ_PARAM_GRID,
-    CROSS_MODEL_PARAM_GRID as XALIGNQ_PARAM_GRID,
-    DEFAULT_TARGET_MODEL as XALIGNQ_TARGET_MODEL,
+    CROSS_MODEL_CONFIGS,
 )
 
 # Directory and File Paths
@@ -216,7 +215,7 @@ class PiperSupervisor:
         self.optimizer_engine = None
         self.signaling_engine = None
         self.congruence_optimizer = None
-        self.cross_model_optimizer = None
+        self.cross_model_optimizers: Dict[str, CongruenceOptimizer] = {}
         self.param_grid = PARAM_GRID
         self.total_trials_run = 0
 
@@ -247,8 +246,16 @@ class PiperSupervisor:
             "P3LOOP": self._run_p3loop_trial,
             "WLCOMM": self._run_wlcomm_trial,
             "ALIGNQ": self._run_alignq_trial,
-            "XALIGNQ": self._run_xalignq_trial,
         }
+        # One cross-model handler per CROSS_MODEL_CONFIGS entry (XALIGNQ,
+        # XALIGNDS, ...) - each pairing differs only in target model and
+        # param grid, so _run_cross_model_trial is shared and just needs
+        # its prefix bound per registry entry, rather than a near-duplicate
+        # _run_..._trial method for every new model pairing tried.
+        for cross_model_prefix in CROSS_MODEL_CONFIGS:
+            self.trial_handlers[cross_model_prefix] = (
+                lambda prefix=cross_model_prefix: self._run_cross_model_trial(prefix)
+            )
 
         self.graph = self._build_graph()
         print("[Supervisor] Initialization complete. Active multi-track goals and dynamic cycle prefixes loaded.")
@@ -272,11 +279,12 @@ class PiperSupervisor:
             self.congruence_optimizer = CongruenceOptimizer()
         return self.congruence_optimizer
 
-    def _get_cross_model_optimizer(self) -> CongruenceOptimizer:
-        """Lazy-loads the XALIGNQ optimizer (two residual extractors, one per model) on first use."""
-        if self.cross_model_optimizer is None:
-            self.cross_model_optimizer = CongruenceOptimizer(target_model_name=XALIGNQ_TARGET_MODEL)
-        return self.cross_model_optimizer
+    def _get_cross_model_optimizer(self, prefix: str) -> CongruenceOptimizer:
+        """Lazy-loads (and caches per prefix) the optimizer for one CROSS_MODEL_CONFIGS pairing."""
+        if prefix not in self.cross_model_optimizers:
+            target_model = CROSS_MODEL_CONFIGS[prefix]["target_model"]
+            self.cross_model_optimizers[prefix] = CongruenceOptimizer(target_model_name=target_model)
+        return self.cross_model_optimizers[prefix]
 
     def evaluate_audio_event_node(self, state: PiperBrainState) -> PiperBrainState:
         raw_text = (state.get("input_text") or "").strip()
@@ -545,16 +553,17 @@ tags:
         )
         return topic, result_str
 
-    def _run_xalignq_trial(self) -> Tuple[str, str]:
+    def _run_cross_model_trial(self, prefix: str) -> Tuple[str, str]:
         """Cross-Model Alignment Congruence: same measurement as ALIGNQ
         (congruence + held-out accuracy/cosine similarity), but source and
-        receiver layers come from two different models
-        (XALIGNQ_TARGET_MODEL vs CongruenceOptimizer's default) rather than
-        two layers of one model. Layer choice is fixed (not swept) for
-        this first cross-model batch - see CROSS_MODEL_PARAM_GRID.
+        receiver layers come from two different models - which pairing
+        depends on `prefix`, looked up in CROSS_MODEL_CONFIGS (XALIGNQ:
+        TinyLlama, XALIGNDS: DeepSeek-R1-Distill-Qwen-1.5B, ...). Layer
+        choice is fixed (not swept) per pairing - see CROSS_MODEL_CONFIGS.
         """
-        optimizer = self._get_cross_model_optimizer()
-        trial_params = {k: random.choice(v) for k, v in XALIGNQ_PARAM_GRID.items()}
+        optimizer = self._get_cross_model_optimizer(prefix)
+        param_grid = CROSS_MODEL_CONFIGS[prefix]["param_grid"]
+        trial_params = {k: random.choice(v) for k, v in param_grid.items()}
 
         self.total_trials_run += 1
         result = optimizer.run_trial(trial_params)
@@ -565,12 +574,12 @@ tags:
             accuracy=result["accuracy"] * 100,
             correlation=result["congruence"],
             cos_sim=result["cosine_sim"],
-            prefix="XALIGNQ",
+            prefix=prefix,
             source_layer=result["source_layer"],
             receiver_layer=result["receiver_layer"],
         )
 
-        topic = "Cross-Model Alignment Congruence"
+        topic = f"Cross-Model Alignment Congruence ({prefix})"
         result_str = (
             f"Trial {self.total_trials_run}: {optimizer.model_name} L{result['source_layer']} -> "
             f"{optimizer.target_model_name} L{result['receiver_layer']} "
