@@ -162,6 +162,29 @@ def extract_full_sequence(model, tokenizer, device, text: str, layer_idx: int) -
     return outputs.hidden_states[layer_idx][0]  # (seq_len, hidden_dim), batch dim dropped
 
 
+def norm_stats(states: torch.Tensor) -> dict:
+    """Per-token L2 norm summary, to check whether translated vectors
+    carry a systematically different scale than what the target layer's
+    own native activations look like. A Procrustes rotation is provably
+    norm-preserving (W @ W.T = I by construction), so rotated/random
+    states are mathematically guaranteed to carry Qwen's original
+    magnitudes unchanged - if that turns out to differ from Phi-4-mini's
+    own native scale at the same layer, translation can't close that gap
+    on its own, no matter how good the rotation's direction is."""
+    norms = states.norm(dim=-1)
+    return {
+        "mean": norms.mean().item(),
+        "std": norms.std().item(),
+        "min": norms.min().item(),
+        "max": norms.max().item(),
+    }
+
+
+def _print_norm_stats(label: str, stats: dict) -> None:
+    print(f"[ConceptTransferTest]   {label}: mean={stats['mean']:.2f}  "
+          f"std={stats['std']:.2f}  min={stats['min']:.2f}  max={stats['max']:.2f}")
+
+
 class _LayerInjectionHook:
     """Overrides one transformer layer's output on its first invocation -
     the prefill pass over the full placeholder sequence - with externally
@@ -281,6 +304,16 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
     random_states = source_hidden @ W_random    # (T_source, target_dim)
     # target_hidden_native is already (T_target, target_dim) - no translation needed
 
+    print("[ConceptTransferTest] Per-token vector norms (checking for a scale mismatch):")
+    source_norms = norm_stats(source_hidden)
+    rotated_norms = norm_stats(rotated_states)
+    random_norms = norm_stats(random_states)
+    target_native_norms = norm_stats(target_hidden_native)
+    _print_norm_stats("source_hidden (Qwen L%d, native)" % source_layer, source_norms)
+    _print_norm_stats("rotated_states (translated via W)", rotated_norms)
+    _print_norm_stats("random_states (translated via random W)", random_norms)
+    _print_norm_stats("target_hidden_native (Phi-4-mini L%d, native)" % receiver_layer, target_native_norms)
+
     target_model = target_extractor.model
     target_tokenizer = target_extractor.tokenizer
     device = target_extractor.device
@@ -304,6 +337,10 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
         "calibration_size": len(calibration_concepts),
         "source_token_count": source_hidden.shape[0],
         "target_token_count": target_hidden_native.shape[0],
+        "source_norms": source_norms,
+        "rotated_norms": rotated_norms,
+        "random_norms": random_norms,
+        "target_native_norms": target_native_norms,
         "rotated_output": rotated_output,
         "random_rotation_output": random_output,
         "self_roundtrip_output": self_output,
@@ -353,6 +390,19 @@ tags:
 **Passage** ({result['domain']}): {result['passage']}
 **Pairing**: {result['source_model']} L{result['source_layer']} ({result['source_token_count']} tokens) -> {result['target_model']} L{result['receiver_layer']} ({result['target_token_count']} tokens)
 **Calibration Size**: {result['calibration_size']}
+
+## Per-token vector norms (scale-mismatch check)
+A Procrustes rotation is provably norm-preserving, so rotated/random
+should exactly match source's scale - any gap to target-native reflects
+Qwen's and Phi-4-mini's own differing native scales, not something
+translation could have fixed by picking a better rotation.
+
+| | mean | std | min | max |
+|---|---|---|---|---|
+| source_hidden (Qwen L{result['source_layer']}, native) | {result['source_norms']['mean']:.2f} | {result['source_norms']['std']:.2f} | {result['source_norms']['min']:.2f} | {result['source_norms']['max']:.2f} |
+| rotated_states (translated via W) | {result['rotated_norms']['mean']:.2f} | {result['rotated_norms']['std']:.2f} | {result['rotated_norms']['min']:.2f} | {result['rotated_norms']['max']:.2f} |
+| random_states (translated via random W) | {result['random_norms']['mean']:.2f} | {result['random_norms']['std']:.2f} | {result['random_norms']['min']:.2f} | {result['random_norms']['max']:.2f} |
+| target_hidden_native (Phi-4-mini L{result['receiver_layer']}, native) | {result['target_native_norms']['mean']:.2f} | {result['target_native_norms']['std']:.2f} | {result['target_native_norms']['min']:.2f} | {result['target_native_norms']['max']:.2f} |
 
 ## 1. Rotated (translated passage, layer-{result['receiver_layer']} injection)
 {result['rotated_output']}
