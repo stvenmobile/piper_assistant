@@ -103,6 +103,24 @@ def build_warm_start(source_extractor, target_extractor, source_layer, receiver_
     return W * scale_factor
 
 
+def _primary_concepts(phrases: list) -> list:
+    """Same filter concept_transfer_test.py's _primary_concepts already
+    applies before using a domain's phrases as a test passage - excludes
+    the auto-generated "Advanced corollary N in {domain}: Analysis of..."
+    and "Empirical boundary condition regarding..." padding entries,
+    which make up 2/3 of every domain's pool (40 of physics's 60, 20 of
+    cognitive_science's 30) and were only ever meant as calibration bulk,
+    not individually meaningful content.
+
+    load_examples originally skipped this filter, so training/eval
+    sampled uniformly across a pool where two-thirds of examples were
+    that padding - which also runs ~80% longer on average (12.3-12.7
+    words vs. 6.3-7.2 for the real concepts), a real contributor to a
+    long real run's climbing nan rate (6% of steps in an early 200-step
+    run vs. 36% by step 654 of a longer one)."""
+    return [p for p in phrases if not p.startswith(("Advanced corollary", "Empirical boundary condition"))]
+
+
 def load_examples(concepts_path: Path = CONCEPTS_PATH, holdout_fraction: float = 0.2,
                    seed: int = RNG_SEED):
     """Everywhere else in the project, concepts_dictionary.json's phrases
@@ -112,7 +130,7 @@ def load_examples(concepts_path: Path = CONCEPTS_PATH, holdout_fraction: float =
     right label, and a held-out split the training loop never samples
     from, so accuracy on it actually measures generalization rather than
     memorization. The split is per-domain (not global) so every domain -
-    including the two with only 30 phrases instead of 60 - ends up
+    including the two with fewer primary phrases than the rest - ends up
     represented in both sets, and it's seeded so re-running training
     starts from the same train/held-out boundary rather than a new
     random one each time."""
@@ -124,7 +142,7 @@ def load_examples(concepts_path: Path = CONCEPTS_PATH, holdout_fraction: float =
     for domain, phrases in by_domain.items():
         if domain not in DOMAIN_LABELS:
             continue
-        phrases = list(phrases)
+        phrases = _primary_concepts(list(phrases))
         rng.shuffle(phrases)
         split = max(1, int(len(phrases) * (1 - holdout_fraction)))
         train.extend((domain, phrase) for phrase in phrases[:split])
@@ -350,8 +368,19 @@ def run_training(adapter, source_extractor, target_extractor, source_layer: int,
     or runs out of time, whichever comes first - and either way, the
     checkpoint-on-improvement logic above means there's always a saved
     best-so-far model, not just whatever state training happened to be in
-    at the cutoff."""
-    optimizer = torch.optim.Adam(adapter.parameters(), lr=learning_rate)
+    at the cutoff.
+
+    AdamW (not Adam) with a small weight_decay: gradient clipping bounds
+    the size of each individual UPDATE, but nothing bounded the adapter's
+    own weight magnitude across thousands of updates - and a skipped
+    nan/inf step leaves the weights exactly where they were rather than
+    correcting them, so a run that drifts into a numerically fragile
+    region tends to stay there rather than recover on its own (a real run
+    saw its skip rate climb from ~6% over its first 200 steps to ~36% by
+    step 654). Weight decay pulls magnitude gently back toward zero every
+    step, independent of the gradient signal, as a standing counterweight
+    to that drift."""
+    optimizer = torch.optim.AdamW(adapter.parameters(), lr=learning_rate, weight_decay=1e-4)
     rng = random.Random(seed)
     start_time = time.monotonic()
 
