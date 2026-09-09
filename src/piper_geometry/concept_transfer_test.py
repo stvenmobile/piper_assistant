@@ -121,7 +121,10 @@ def _random_semi_orthogonal_like(W: torch.Tensor) -> torch.Tensor:
     transposing back yields the row-orthonormal shape actually needed.
     """
     rows, cols = W.shape
-    Q, _ = torch.linalg.qr(torch.randn(cols, rows))
+    # torch.randn defaults to CPU regardless of W's own device - matching
+    # it explicitly here (rather than leaving callers to .to() the result)
+    # means this behaves like torch's own *_like conventions.
+    Q, _ = torch.linalg.qr(torch.randn(cols, rows, device=W.device, dtype=W.dtype))
     return Q.t()
 
 
@@ -250,7 +253,15 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
     calibration_concepts = other_concepts[:CALIBRATION_SIZE]
 
     print(f"[ConceptTransferTest] Computing rotation from {len(calibration_concepts)} calibration concepts...")
+    # build_rotation's inputs come from ResidualExtractor.extract_activations(),
+    # which explicitly .cpu()s its output - so W ends up on CPU regardless of
+    # which device the models themselves run on. extract_full_sequence below
+    # does not move its output off the model's own device (CUDA here), so W
+    # needs an explicit move before it's ever multiplied against those
+    # tensors - matches source_hidden's device since that's the side W gets
+    # matrix-multiplied against.
     W = build_rotation(source_extractor, target_extractor, source_layer, receiver_layer, calibration_concepts)
+    W = W.to(source_extractor.device)
     W_random = _random_semi_orthogonal_like(W)
 
     print("[ConceptTransferTest] Extracting full-sequence hidden states for the passage...")
