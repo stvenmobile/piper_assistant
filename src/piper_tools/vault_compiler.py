@@ -68,7 +68,6 @@ class VaultCompiler:
 
         file_path.write_text(content, encoding="utf-8")
         self._update_concept_index(target_concept, experiment_id, metrics)
-        self._append_daily_journal(experiment_id, target_concept, metrics)
         return file_path
 
     def _update_concept_index(self, concept_name: str, experiment_id: str, metrics: dict):
@@ -93,22 +92,11 @@ class VaultCompiler:
             with open(concept_path, "a", encoding="utf-8") as f:
                 f.write(entry)
 
-    def _append_daily_journal(self, experiment_id: str, target_concept: str, metrics: dict):
-        """Appends a concise log entry to today's journal note."""
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        journal_path = JOURNALS_DIR / f"{today_str}.md"
-        timestamp = datetime.now().strftime("%H:%M:%S")
-
-        status = "SUCCESS" if metrics.get("success") else "FAILED"
-        entry = f"- `{timestamp}`: Completed [[{experiment_id}]] testing [[{target_concept}]] (Result: `{status}`, Cosine Sim: `{metrics.get('cosine_sim', 0.0):.3f}`)\n"
-
-        if not journal_path.exists():
-            header = f"# Daily Journal: {today_str}\n\n## Autonomous Research Log\n"
-            journal_path.write_text(header + entry, encoding="utf-8")
-        else:
-            with open(journal_path, "a", encoding="utf-8") as f:
-                f.write(entry)
-
+    # No auto-generated per-trial journal writer here anymore -
+    # obsidian/Journals/ is reserved for manually-written joint
+    # development ideation entries (see 2026-09-09.md), not an
+    # autonomous per-trial log. Autonomous trial history already lives in
+    # obsidian/Experiments/ via _log_trial_note (piper_brain/supervisor.py).
 
 if __name__ == "__main__":
     compiler = VaultCompiler()
