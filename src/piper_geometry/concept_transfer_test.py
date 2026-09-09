@@ -121,11 +121,16 @@ def _random_semi_orthogonal_like(W: torch.Tensor) -> torch.Tensor:
     transposing back yields the row-orthonormal shape actually needed.
     """
     rows, cols = W.shape
-    # torch.randn defaults to CPU regardless of W's own device - matching
-    # it explicitly here (rather than leaving callers to .to() the result)
-    # means this behaves like torch's own *_like conventions.
-    Q, _ = torch.linalg.qr(torch.randn(cols, rows, device=W.device, dtype=W.dtype))
-    return Q.t()
+    # QR runs on CPU regardless of W's own device, then the result moves
+    # to W's device afterward - not just a style choice. This Jetson's
+    # PyTorch build has a broken CUDA cusolver linkage for at least some
+    # GPU linalg routines (torch.linalg.qr on CUDA fails here with
+    # "undefined symbol: cusolverDnXsyevBatched_bufferSize"). CPU QR is
+    # proven to work: build_rotation's SVD already runs entirely on CPU,
+    # for the unrelated reason that ResidualExtractor.extract_activations()
+    # always returns .cpu() tensors, and never hits this failure.
+    Q, _ = torch.linalg.qr(torch.randn(cols, rows, dtype=W.dtype))
+    return Q.t().to(device=W.device)
 
 
 def build_rotation(source_extractor, target_extractor, source_layer, receiver_layer, calibration_concepts):
