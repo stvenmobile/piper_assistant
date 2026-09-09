@@ -448,5 +448,13 @@ Manual read for now, no automated scoring yet:
 
 
 if __name__ == "__main__":
-    result = run_test(domain="physics", num_concepts=4)
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--domain", default="physics",
+                         choices=["physics", "computer_science", "philosophy", "mathematics", "cognitive_science", "biology"])
+    parser.add_argument("--num-concepts", type=int, default=4)
+    args = parser.parse_args()
+
+    result = run_test(domain=args.domain, num_concepts=args.num_concepts)
     log_markdown(result)

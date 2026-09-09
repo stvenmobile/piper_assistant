@@ -2,7 +2,7 @@
 id: GOAL-CROSS-MODEL-ALIGNMENT-CONGRUENCE-PHI4
 title: Cross-Model Alignment Congruence (Phi-4-mini-instruct)
 prefix: XALIGNPHI
-status: active
+status: paused
 created: 2026-09-08
 source_model: Qwen/Qwen2.5-0.5B-Instruct
 target_model: microsoft/Phi-4-mini-instruct
@@ -10,7 +10,17 @@ target_model: microsoft/Phi-4-mini-instruct
 
 # Goal: Cross-Model Alignment Congruence (Phi-4-mini-instruct)
 
-**Status**: `active`
+**Status**: `paused`
+
+**Paused 2026-09-09**: 337 trials collected, strongest cross-model result
+found (0.946 cosine similarity at calibration_size=280). Moving to
+[[concept_transfer_interpretation_batch]] (prefix CTRANSFER), which
+reuses this pairing's recipe to test something this track never
+measured - whether the receiving model actually behaves as if it
+understood translated content, not just whether the numbers land close.
+Reactivate to extend this pairing's own data (layer sweep, larger
+calibration dictionary) if the interpretation work points back here.
+
 **Target**: Same measurement as [[cross_model_alignment_congruence]] and
 [[cross_model_alignment_congruence_deepseek]] (congruence + held-out
 cosine similarity/accuracy), on the largest model pairing attempted so
