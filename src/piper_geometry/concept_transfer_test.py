@@ -332,16 +332,7 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
     target_tokenizer = target_extractor.tokenizer
     device = target_extractor.device
 
-    print("[ConceptTransferTest] Generating: rotated condition (layer injection)...")
-    rotated_output = generate_with_injection(target_model, target_tokenizer, device, receiver_layer, rotated_states, max_new_tokens)
-    print("[ConceptTransferTest] Generating: random-rotation control (layer injection)...")
-    random_output = generate_with_injection(target_model, target_tokenizer, device, receiver_layer, random_states, max_new_tokens)
-    print("[ConceptTransferTest] Generating: self round-trip (layer injection, no translation)...")
-    self_output = generate_with_injection(target_model, target_tokenizer, device, receiver_layer, target_hidden_native, max_new_tokens)
-    print("[ConceptTransferTest] Generating: real text upper bound (unmodified)...")
-    real_output = generate_normally(target_model, target_tokenizer, device, passage, max_new_tokens)
-
-    result = {
+    header_info = {
         "domain": domain,
         "passage": passage,
         "source_model": DEFAULT_MODEL,
@@ -356,25 +347,66 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
         "random_norms": random_norms,
         "target_native_norms": target_native_norms,
         "scale_factor": scale_factor,
+    }
+    # Written before any generation is attempted, and each condition's
+    # section appended immediately after it completes (or fails) - a
+    # crash partway through (the random-rotation condition has triggered
+    # a CUDA device-side assert on multiple runs now) previously lost
+    # every earlier condition's output too, since the old version only
+    # wrote the note once at the very end. Each generate_* call is now
+    # wrapped so a crash still appends what happened before re-raising -
+    # the batch runner still sees a nonzero exit code either way, but the
+    # note now records exactly which condition failed and with what
+    # error, instead of leaving nothing behind at all.
+    note_file = create_note(header_info)
+
+    def _run_condition(number: int, title: str, fn, *fn_args):
+        print(f"[ConceptTransferTest] Generating: {title}...")
+        try:
+            output = fn(*fn_args)
+        except Exception as e:
+            append_condition(note_file, number, title, f"CRASHED: {type(e).__name__}: {e}")
+            raise
+        append_condition(note_file, number, title, output)
+        print(f"\n=== {number}. {title.upper()} ===")
+        print(output)
+        return output
+
+    rotated_output = _run_condition(
+        1, "Rotated (translated passage, layer injection)",
+        generate_with_injection, target_model, target_tokenizer, device, receiver_layer, rotated_states, max_new_tokens,
+    )
+    random_output = _run_condition(
+        2, "Random Rotation (negative control, layer injection)",
+        generate_with_injection, target_model, target_tokenizer, device, receiver_layer, random_states, max_new_tokens,
+    )
+    self_output = _run_condition(
+        3, "Self Round-Trip (mechanism-only control, no translation, layer injection)",
+        generate_with_injection, target_model, target_tokenizer, device, receiver_layer, target_hidden_native, max_new_tokens,
+    )
+    real_output = _run_condition(
+        4, "Real Text (upper bound, unmodified generation)",
+        generate_normally, target_model, target_tokenizer, device, passage, max_new_tokens,
+    )
+
+    append_evaluation_note(note_file)
+
+    result = dict(header_info)
+    result.update({
         "rotated_output": rotated_output,
         "random_rotation_output": random_output,
         "self_roundtrip_output": self_output,
         "real_text_output": real_output,
-    }
-
-    print("\n=== 1. ROTATED (translated passage) ===")
-    print(rotated_output)
-    print("\n=== 2. RANDOM ROTATION (negative control) ===")
-    print(random_output)
-    print("\n=== 3. SELF ROUND-TRIP (mechanism-only control) ===")
-    print(self_output)
-    print("\n=== 4. REAL TEXT (upper bound) ===")
-    print(real_output)
-
+        "note_file": note_file,
+    })
     return result
 
 
-def log_markdown(result: dict) -> Path:
+def create_note(info: dict) -> Path:
+    """Writes the note's frontmatter, passage, and norm table before any
+    generation is attempted - each condition's section is appended to
+    this same file afterward via append_condition(), so partial results
+    survive a crash partway through."""
     EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
     now_dt = datetime.now()
     exp_id = f"CTRANSFER-{now_dt.strftime('%Y%m%d-%H%M%S')}"
@@ -385,14 +417,14 @@ id: {exp_id}
 type: concept_transfer_interpretation_test
 cycle_prefix: CTRANSFER
 date: '{now_dt.isoformat()}'
-domain: {result['domain']}
-source_model: {result['source_model']}
-target_model: {result['target_model']}
-source_layer: {result['source_layer']}
-receiver_layer: {result['receiver_layer']}
-calibration_size: {result['calibration_size']}
-source_token_count: {result['source_token_count']}
-target_token_count: {result['target_token_count']}
+domain: {info['domain']}
+source_model: {info['source_model']}
+target_model: {info['target_model']}
+source_layer: {info['source_layer']}
+receiver_layer: {info['receiver_layer']}
+calibration_size: {info['calibration_size']}
+source_token_count: {info['source_token_count']}
+target_token_count: {info['target_token_count']}
 tags:
 - concept_transfer
 - interpretation_test
@@ -402,9 +434,9 @@ tags:
 
 # Experiment: {exp_id}
 
-**Passage** ({result['domain']}): {result['passage']}
-**Pairing**: {result['source_model']} L{result['source_layer']} ({result['source_token_count']} tokens) -> {result['target_model']} L{result['receiver_layer']} ({result['target_token_count']} tokens)
-**Calibration Size**: {result['calibration_size']}
+**Passage** ({info['domain']}): {info['passage']}
+**Pairing**: {info['source_model']} L{info['source_layer']} ({info['source_token_count']} tokens) -> {info['target_model']} L{info['receiver_layer']} ({info['target_token_count']} tokens)
+**Calibration Size**: {info['calibration_size']}
 
 ## Per-token vector norms (scale-mismatch check)
 A Procrustes rotation is provably norm-preserving, so rotated/random
@@ -414,25 +446,25 @@ translation could have fixed by picking a better rotation.
 
 | | mean | std | min | max |
 |---|---|---|---|---|
-| source_hidden (Qwen L{result['source_layer']}, native) | {result['source_norms']['mean']:.2f} | {result['source_norms']['std']:.2f} | {result['source_norms']['min']:.2f} | {result['source_norms']['max']:.2f} |
-| rotated_states (translated via W) | {result['rotated_norms']['mean']:.2f} | {result['rotated_norms']['std']:.2f} | {result['rotated_norms']['min']:.2f} | {result['rotated_norms']['max']:.2f} |
-| random_states (translated via random W) | {result['random_norms']['mean']:.2f} | {result['random_norms']['std']:.2f} | {result['random_norms']['min']:.2f} | {result['random_norms']['max']:.2f} |
-| target_hidden_native (Phi-4-mini L{result['receiver_layer']}, native) | {result['target_native_norms']['mean']:.2f} | {result['target_native_norms']['std']:.2f} | {result['target_native_norms']['min']:.2f} | {result['target_native_norms']['max']:.2f} |
+| source_hidden (Qwen L{info['source_layer']}, native) | {info['source_norms']['mean']:.2f} | {info['source_norms']['std']:.2f} | {info['source_norms']['min']:.2f} | {info['source_norms']['max']:.2f} |
+| rotated_states (translated via W) | {info['rotated_norms']['mean']:.2f} | {info['rotated_norms']['std']:.2f} | {info['rotated_norms']['min']:.2f} | {info['rotated_norms']['max']:.2f} |
+| random_states (translated via random W) | {info['random_norms']['mean']:.2f} | {info['random_norms']['std']:.2f} | {info['random_norms']['min']:.2f} | {info['random_norms']['max']:.2f} |
+| target_hidden_native (Phi-4-mini L{info['receiver_layer']}, native) | {info['target_native_norms']['mean']:.2f} | {info['target_native_norms']['std']:.2f} | {info['target_native_norms']['min']:.2f} | {info['target_native_norms']['max']:.2f} |
 
-**Scale correction applied**: rotated/random states rescaled by {result['scale_factor']:.3f}x (target-native mean norm / source-native mean norm) before injection, since a rotation preserves direction but not magnitude.
+**Scale correction applied**: rotated/random states rescaled by {info['scale_factor']:.3f}x (target-native mean norm / source-native mean norm) before injection, since a rotation preserves direction but not magnitude.
+"""
+    note_file.write_text(content, encoding="utf-8")
+    return note_file
 
-## 1. Rotated (translated passage, layer-{result['receiver_layer']} injection)
-{result['rotated_output']}
 
-## 2. Random Rotation (negative control, layer-{result['receiver_layer']} injection)
-{result['random_rotation_output']}
+def append_condition(note_file: Path, number: int, title: str, output: str) -> None:
+    with open(note_file, "a", encoding="utf-8") as f:
+        f.write(f"\n## {number}. {title}\n{output}\n")
 
-## 3. Self Round-Trip (mechanism-only control, no translation, layer-{result['receiver_layer']} injection)
-{result['self_roundtrip_output']}
 
-## 4. Real Text (upper bound, unmodified generation)
-{result['real_text_output']}
-
+def append_evaluation_note(note_file: Path) -> None:
+    with open(note_file, "a", encoding="utf-8") as f:
+        f.write("""
 ## Evaluation
 Manual read for now, no automated scoring yet:
 - Does condition 1 land closer to condition 4's territory (domain/theme)
@@ -441,10 +473,7 @@ Manual read for now, no automated scoring yet:
   itself is lossy independent of any cross-model translation, and that's
   the bottleneck to fix before cross-model quality is worth chasing
   further.
-"""
-    note_file.write_text(content, encoding="utf-8")
-    print(f"\n[ConceptTransferTest] Logged to {note_file}")
-    return note_file
+""")
 
 
 if __name__ == "__main__":
@@ -457,4 +486,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     result = run_test(domain=args.domain, num_concepts=args.num_concepts)
-    log_markdown(result)
+    print(f"\n[ConceptTransferTest] Logged to {result['note_file']}")
