@@ -134,6 +134,39 @@ class LayerInjectionHook:
         return (new_hidden,) + output[1:] if is_tuple else new_hidden
 
 
+class PartialLayerInjectionHook:
+    """Overrides only the first inject_len positions of a layer's output,
+    leaving every position after that - e.g. a fixed real-text suffix
+    appended after translated content - to reflect the model's own actual
+    computation over whatever now sits in the stream ahead of it.
+
+    Unlike LayerInjectionHook, this isn't restricted to firing once. It's
+    built for a single non-autoregressive forward pass (see train_adapter.py's
+    forward_with_injection), which calls the hooked layer exactly once -
+    there's no prefill-vs-decode-step distinction to guard against here.
+
+    Still gradient-safe: torch.cat is differentiable, and injected_states
+    is only ever moved with .to(dtype=..., device=...), never detached -
+    so a loss computed downstream (e.g. at the final position's logits)
+    backpropagates through the concatenated positions into whatever
+    produced injected_states, exactly like LayerInjectionHook."""
+
+    def __init__(self, injected_states: torch.Tensor):
+        self.injected_states = injected_states  # (1, inject_len, hidden_dim)
+
+    def __call__(self, module, inputs, output):
+        is_tuple = isinstance(output, tuple)
+        hidden = output[0] if is_tuple else output
+        inject_len = self.injected_states.shape[1]
+        if inject_len > hidden.shape[1]:
+            # Sequence shorter than what we'd need to inject into - leave
+            # it alone rather than inject a mismatched/truncated span.
+            return output
+        injected = self.injected_states.to(dtype=hidden.dtype, device=hidden.device)
+        new_hidden = torch.cat([injected, hidden[:, inject_len:, :]], dim=1)
+        return (new_hidden,) + output[1:] if is_tuple else new_hidden
+
+
 def generate_with_injection(model, tokenizer, device, layer_idx: int, injected_states: torch.Tensor,
                              max_new_tokens: int = 60) -> str:
     """Runs a neutral placeholder sequence through the model with
