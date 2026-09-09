@@ -2,36 +2,61 @@
 Piper Geometry: Concept Transfer Interpretation Test.
 
 congruence_optimizer.py answers "does a translated vector land near the
-right geometric target." This script answers a different question:
-does the receiving model actually *behave* as if it understood a
-translated concept, given nothing but that vector to work from? Those
-are not the same thing - recognizing that a signal is meaningful and
-correctly interpreting it are different capabilities (the same way
-hearing an unfamiliar human language, you know it's language before you
-know what it means, if ever).
+right geometric target." This script answers a different question: does
+the receiving model actually *behave* as if it understood translated
+content, given nothing but that content to generate from? Those are not
+the same thing - recognizing that a signal is meaningful and correctly
+interpreting it are different capabilities (the same way hearing an
+unfamiliar human language, you know it's language before you know what
+it means, if ever).
 
-Three conditions, same concept sequence, side by side:
+Two design decisions worth recording, since both came from correcting a
+real mistake in the first version of this script:
 
-1. ROTATED: concepts extracted from the source model, translated via the
-   validated cross-model rotation (recomputed fresh from a calibration
-   set, same math as CongruenceOptimizer.run_trial), fed to the target
-   model as a sequence of soft-prompt embeddings - one embedding per
-   concept, not one concept's vector repeated to fill several slots
-   (the old soft_prompt_injection_dialogue.py did the latter, which
-   also never actually crossed models - same model both ends).
+1. FULL-SEQUENCE translation, not isolated concept vectors. The first
+   version translated four separate concept summaries (each a
+   last-token vector from an unrelated short phrase) and injected them
+   as four disconnected slots. That's a reasonable design for measuring
+   alignment (congruence_optimizer.py's job), but it strips away all the
+   context a real passage carries - a receiving model has nothing to
+   work with beyond four floating, mutually-unrelated points. Here,
+   every token of a real passage is translated and the whole sequence is
+   injected together, preserving the relational structure between
+   positions that generation actually depends on.
+
+2. Injection at the model's OWN layer 24 via a forward hook, not via
+   generate(inputs_embeds=...). inputs_embeds only ever supplies the
+   model's *input* layer (before any of its transformer blocks run) -
+   but the validated rotation maps onto Phi-4-mini's LAYER 24 hidden
+   state, a representation that's already been through 24 layers of
+   processing. Feeding that in as inputs_embeds forces a mid-stack
+   snapshot through all 32 layers as if it were raw input text - a
+   category mismatch, not a fair test of the translation. A forward hook
+   on layer 24 overrides the residual stream at exactly the layer the
+   rotation was calibrated for, and only for the initial prefill pass -
+   every token generated afterward runs layers 25-32 normally, same as
+   it would for any other input.
+
+Four conditions, same passage, side by side:
+
+1. ROTATED: every token of the passage extracted from the source model
+   at its calibrated layer, translated via the validated cross-model
+   rotation, injected into the target model at its own matching layer.
 2. RANDOM ROTATION (negative control): the same source vectors, mapped
    through a random semi-orthogonal matrix of the same shape as the real
-   one instead of the calibrated W. A literally *unrotated* vector can't
-   be fed to the target model at all - source and target hidden
-   dimensions usually differ (896 vs 3072 here), so "no rotation" isn't
-   representable as an input. A random rotation is the honest control:
-   it isolates whether the *calibrated* correspondence is what matters,
-   versus any structurally-similar projection producing equally
-   plausible-sounding output from the target model.
-3. REAL TEXT (upper bound): the actual concept words, tokenized and
-   embedded through the target model's own ordinary path - what a good
-   continuation looks like when the model receives the real semantic
-   content normally, for the rotated/random conditions to be judged
+   rotation instead of the calibrated one - isolates whether the
+   *calibrated* correspondence is what matters, versus any
+   structurally-similar projection producing equally plausible output.
+3. SELF ROUND-TRIP: the target model's OWN native hidden state for the
+   same passage (no translation, no source model involved at all),
+   captured and re-injected through the identical layer-24 hook
+   mechanism used for conditions 1 and 2. Isolates whether the injection
+   mechanism itself is lossy, independent of cross-model translation
+   quality - if this also degrades, the problem is in the mechanism, not
+   in what's being translated.
+4. REAL TEXT (upper bound): the actual passage, tokenized and processed
+   through the target model's ordinary unmodified forward pass - what a
+   good continuation looks like, for the other three to be judged
    against.
 """
 
@@ -58,7 +83,10 @@ EXPERIMENTS_DIR = REPO_ROOT / "obsidian" / "Experiments"
 # ALIGNQ/XALIGNQ/XALIGNDS/XALIGNPHI: Phi-4-mini-instruct as target,
 # center=False (settled across three independent cross-model pairings),
 # calibration_size=280 (the top of the grid - cosine similarity hadn't
-# plateaued there yet).
+# plateaued there yet). Calibration itself stays concept-phrase-based
+# (last-token summaries) - a fixed linear map doesn't care what kind of
+# vector it's applied to afterward, so fitting W this way and applying it
+# to every token of a passage are both valid uses of the same W.
 TARGET_PREFIX = "XALIGNPHI"
 CALIBRATION_SIZE = 280
 RNG_SEED = 1234
@@ -116,19 +144,85 @@ def build_rotation(source_extractor, target_extractor, source_layer, receiver_la
     return W
 
 
-def generate_from_embeds(model, tokenizer, device, embeds: torch.Tensor, max_new_tokens: int = 60) -> str:
-    embeds = embeds.to(device=device, dtype=model.dtype)
-    attention_mask = torch.ones(embeds.shape[:2], device=device)
+def extract_full_sequence(model, tokenizer, device, text: str, layer_idx: int) -> torch.Tensor:
+    """Every token's hidden state at layer_idx for `text`, not just a
+    last-token summary - generation needs the whole sequence to avoid
+    stripping away the context a real passage carries."""
+    inputs = tokenizer(text, return_tensors="pt").to(device)
+    with torch.no_grad():
+        outputs = model(**inputs, output_hidden_states=True)
+    return outputs.hidden_states[layer_idx][0]  # (seq_len, hidden_dim), batch dim dropped
+
+
+class _LayerInjectionHook:
+    """Overrides one transformer layer's output on its first invocation -
+    the prefill pass over the full placeholder sequence - with externally
+    supplied hidden states, then gets out of the way for every subsequent
+    single-token decode step, which must run unmodified so newly
+    generated tokens reflect the model's own real computation given
+    whatever is now sitting in the stream at the injected positions."""
+
+    def __init__(self, injected_states: torch.Tensor):
+        self.injected_states = injected_states  # (1, seq_len, hidden_dim)
+        self.applied = False
+
+    def __call__(self, module, inputs, output):
+        if self.applied:
+            return output
+        self.applied = True
+        is_tuple = isinstance(output, tuple)
+        hidden = output[0] if is_tuple else output
+        if hidden.shape[1] != self.injected_states.shape[1]:
+            # Not the prefill pass we expected - leave it alone rather
+            # than silently apply an injection with mismatched shape.
+            return output
+        new_hidden = self.injected_states.to(dtype=hidden.dtype, device=hidden.device)
+        return (new_hidden,) + output[1:] if is_tuple else new_hidden
+
+
+def generate_with_injection(model, tokenizer, device, layer_idx: int, injected_states: torch.Tensor,
+                             max_new_tokens: int = 60) -> str:
+    """Runs a neutral placeholder sequence through the model with
+    layer_idx's output overridden (via _LayerInjectionHook) on the
+    prefill pass only, then decodes just the newly generated continuation
+    - not the placeholder prefix, which carries no information itself."""
+    seq_len = injected_states.shape[0]
+    placeholder_id = tokenizer.eos_token_id
+    input_ids = torch.full((1, seq_len), placeholder_id, dtype=torch.long, device=device)
+    attention_mask = torch.ones_like(input_ids)
+
+    hook = _LayerInjectionHook(injected_states.unsqueeze(0))
+    handle = model.model.layers[layer_idx].register_forward_hook(hook)
+    try:
+        with torch.no_grad():
+            output_ids = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=0.6,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+    finally:
+        handle.remove()
+
+    if not hook.applied:
+        print(f"[ConceptTransferTest] WARNING: injection hook never fired for layer {layer_idx}")
+    return tokenizer.decode(output_ids[0, seq_len:], skip_special_tokens=True).strip()
+
+
+def generate_normally(model, tokenizer, device, text: str, max_new_tokens: int = 60) -> str:
+    inputs = tokenizer(text, return_tensors="pt").to(device)
+    seq_len = inputs.input_ids.shape[1]
     with torch.no_grad():
         output_ids = model.generate(
-            inputs_embeds=embeds,
-            attention_mask=attention_mask,
+            **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=True,
             temperature=0.6,
             pad_token_id=tokenizer.eos_token_id,
         )
-    return tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
+    return tokenizer.decode(output_ids[0, seq_len:], skip_special_tokens=True).strip()
 
 
 def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int = 60) -> dict:
@@ -142,16 +236,13 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
 
     domains = _load_concepts_by_domain()
     test_concepts = _primary_concepts(domains[domain])[:num_concepts]
-    print(f"[ConceptTransferTest] Test sequence ({domain}): {test_concepts}")
+    passage = ". ".join(test_concepts) + "."
+    print(f"[ConceptTransferTest] Passage ({domain}): {passage}")
 
     # Calibration pool excludes only the chosen test concepts, not the
     # whole domain - excluding the whole domain only leaves 240 of the
     # dictionary's 300 concepts (60 removed per domain), short of the
-    # calibration_size=280 the validated recipe uses. Other same-domain
-    # concepts (physics concepts not chosen as the test sequence) staying
-    # in the calibration pool is standard practice - it mirrors how
-    # HELDOUT_SIZE in congruence_optimizer.py excludes specific concepts,
-    # not entire domains.
+    # calibration_size=280 the validated recipe uses.
     test_concepts_set = set(test_concepts)
     other_concepts = [p for phrases in domains.values() for p in phrases if p not in test_concepts_set]
     rng = random.Random(RNG_SEED)
@@ -162,49 +253,54 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
     W = build_rotation(source_extractor, target_extractor, source_layer, receiver_layer, calibration_concepts)
     W_random = _random_semi_orthogonal_like(W)
 
-    # Extract the test sequence's source-model vectors once, reuse for both rotated and random-rotation conditions.
-    source_vecs = []
-    for concept in test_concepts:
-        acts = source_extractor.extract_activations(prompt=concept, target_layers=[source_layer])
-        source_vecs.append(acts[source_layer])
-    source_matrix = torch.stack(source_vecs).to(torch.float32)  # (num_concepts, source_dim)
+    print("[ConceptTransferTest] Extracting full-sequence hidden states for the passage...")
+    source_hidden = extract_full_sequence(
+        source_extractor.model, source_extractor.tokenizer, source_extractor.device, passage, source_layer
+    ).to(torch.float32)
+    target_hidden_native = extract_full_sequence(
+        target_extractor.model, target_extractor.tokenizer, target_extractor.device, passage, receiver_layer
+    ).to(torch.float32)
 
-    rotated = (source_matrix @ W).unsqueeze(0)          # (1, num_concepts, target_dim)
-    random_rotated = (source_matrix @ W_random).unsqueeze(0)
+    rotated_states = source_hidden @ W          # (T_source, target_dim)
+    random_states = source_hidden @ W_random    # (T_source, target_dim)
+    # target_hidden_native is already (T_target, target_dim) - no translation needed
 
     target_model = target_extractor.model
     target_tokenizer = target_extractor.tokenizer
     device = target_extractor.device
 
-    real_text = ". ".join(test_concepts) + "."
-    real_input_ids = target_tokenizer(real_text, return_tensors="pt").input_ids.to(device)
-    real_embeds = target_model.get_input_embeddings()(real_input_ids)
-
-    print("[ConceptTransferTest] Generating: rotated condition...")
-    rotated_output = generate_from_embeds(target_model, target_tokenizer, device, rotated, max_new_tokens)
-    print("[ConceptTransferTest] Generating: random-rotation control...")
-    random_output = generate_from_embeds(target_model, target_tokenizer, device, random_rotated, max_new_tokens)
-    print("[ConceptTransferTest] Generating: real-text upper bound...")
-    real_output = generate_from_embeds(target_model, target_tokenizer, device, real_embeds, max_new_tokens)
+    print("[ConceptTransferTest] Generating: rotated condition (layer injection)...")
+    rotated_output = generate_with_injection(target_model, target_tokenizer, device, receiver_layer, rotated_states, max_new_tokens)
+    print("[ConceptTransferTest] Generating: random-rotation control (layer injection)...")
+    random_output = generate_with_injection(target_model, target_tokenizer, device, receiver_layer, random_states, max_new_tokens)
+    print("[ConceptTransferTest] Generating: self round-trip (layer injection, no translation)...")
+    self_output = generate_with_injection(target_model, target_tokenizer, device, receiver_layer, target_hidden_native, max_new_tokens)
+    print("[ConceptTransferTest] Generating: real text upper bound (unmodified)...")
+    real_output = generate_normally(target_model, target_tokenizer, device, passage, max_new_tokens)
 
     result = {
         "domain": domain,
-        "test_concepts": test_concepts,
+        "passage": passage,
         "source_model": DEFAULT_MODEL,
         "target_model": target_model_name,
         "source_layer": source_layer,
         "receiver_layer": receiver_layer,
         "calibration_size": len(calibration_concepts),
+        "source_token_count": source_hidden.shape[0],
+        "target_token_count": target_hidden_native.shape[0],
         "rotated_output": rotated_output,
         "random_rotation_output": random_output,
+        "self_roundtrip_output": self_output,
         "real_text_output": real_output,
     }
 
-    print("\n=== ROTATED (translated concepts) ===")
+    print("\n=== 1. ROTATED (translated passage) ===")
     print(rotated_output)
-    print("\n=== RANDOM ROTATION (negative control) ===")
+    print("\n=== 2. RANDOM ROTATION (negative control) ===")
     print(random_output)
-    print("\n=== REAL TEXT (upper bound) ===")
+    print("\n=== 3. SELF ROUND-TRIP (mechanism-only control) ===")
+    print(self_output)
+    print("\n=== 4. REAL TEXT (upper bound) ===")
     print(real_output)
 
     return result
@@ -227,31 +323,41 @@ target_model: {result['target_model']}
 source_layer: {result['source_layer']}
 receiver_layer: {result['receiver_layer']}
 calibration_size: {result['calibration_size']}
+source_token_count: {result['source_token_count']}
+target_token_count: {result['target_token_count']}
 tags:
 - concept_transfer
 - interpretation_test
+- layer_injection
 - {TARGET_PREFIX.lower()}
 ---
 
 # Experiment: {exp_id}
 
-**Test Concepts** ({result['domain']}): {result['test_concepts']}
-**Pairing**: {result['source_model']} L{result['source_layer']} -> {result['target_model']} L{result['receiver_layer']}
+**Passage** ({result['domain']}): {result['passage']}
+**Pairing**: {result['source_model']} L{result['source_layer']} ({result['source_token_count']} tokens) -> {result['target_model']} L{result['receiver_layer']} ({result['target_token_count']} tokens)
 **Calibration Size**: {result['calibration_size']}
 
-## 1. Rotated (translated concepts)
+## 1. Rotated (translated passage, layer-{result['receiver_layer']} injection)
 {result['rotated_output']}
 
-## 2. Random Rotation (negative control)
+## 2. Random Rotation (negative control, layer-{result['receiver_layer']} injection)
 {result['random_rotation_output']}
 
-## 3. Real Text (upper bound)
+## 3. Self Round-Trip (mechanism-only control, no translation, layer-{result['receiver_layer']} injection)
+{result['self_roundtrip_output']}
+
+## 4. Real Text (upper bound, unmodified generation)
 {result['real_text_output']}
 
 ## Evaluation
-Manual read: does condition 1 land closer to condition 3's territory
-(domain/theme) than condition 2 does? Qualitative for now - no automated
-scoring yet.
+Manual read for now, no automated scoring yet:
+- Does condition 1 land closer to condition 4's territory (domain/theme)
+  than condition 2 does? That's the actual translation-quality question.
+- Does condition 3 come out coherent? If not, the injection mechanism
+  itself is lossy independent of any cross-model translation, and that's
+  the bottleneck to fix before cross-model quality is worth chasing
+  further.
 """
     note_file.write_text(content, encoding="utf-8")
     print(f"\n[ConceptTransferTest] Logged to {note_file}")
