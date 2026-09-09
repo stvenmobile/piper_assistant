@@ -271,31 +271,47 @@ def compute_loss_and_prediction(adapter, source_extractor, target_extractor, sou
 
 
 def evaluate(adapter, source_extractor, target_extractor, source_layer, receiver_layer,
-             examples: list, label_token_ids: dict) -> float:
+             examples: list, label_token_ids: dict):
     """Held-out accuracy: the fraction of examples.load_examples's held-out
     split where the injected translation actually makes Phi-4-mini predict
     the right domain - the concrete "did this produce the correct
     downstream behavior" measure the training design settled on, in place
-    of judging generation fluency."""
+    of judging generation fluency.
+
+    Returns (overall_accuracy, per_domain_accuracy) rather than just the
+    aggregate - the first real Jetson run climbed to 81.7% overall with no
+    way to tell whether that meant "broadly competent across all six
+    domains" or "nearly perfect on a couple, near-zero on the rest,
+    averaging out to something that looks like progress." Per-domain
+    numbers make that visible instead of assumed."""
     adapter.eval()
-    correct = 0
+    domain_correct: dict = {}
+    domain_total: dict = {}
     with torch.no_grad():
         for domain, passage in examples:
             _, predicted_id = compute_loss_and_prediction(
                 adapter, source_extractor, target_extractor, source_layer, receiver_layer, domain, passage, label_token_ids,
             )
+            domain_total[domain] = domain_total.get(domain, 0) + 1
             if predicted_id == label_token_ids[domain]:
-                correct += 1
+                domain_correct[domain] = domain_correct.get(domain, 0) + 1
     adapter.train()
-    return correct / len(examples)
+
+    per_domain_accuracy = {
+        domain: domain_correct.get(domain, 0) / total for domain, total in domain_total.items()
+    }
+    overall_accuracy = sum(domain_correct.values()) / sum(domain_total.values())
+    return overall_accuracy, per_domain_accuracy
 
 
-def save_checkpoint(adapter, path: Path, step: int, accuracy: float, source_layer: int, receiver_layer: int) -> None:
+def save_checkpoint(adapter, path: Path, step: int, accuracy: float, source_layer: int, receiver_layer: int,
+                     per_domain_accuracy: dict = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save({
         "state_dict": adapter.state_dict(),
         "step": step,
         "held_out_accuracy": accuracy,
+        "held_out_per_domain_accuracy": per_domain_accuracy or {},
         "source_layer": source_layer,
         "receiver_layer": receiver_layer,
         "target_prefix": TARGET_PREFIX,
@@ -352,14 +368,20 @@ def run_training(adapter, source_extractor, target_extractor, source_layer: int,
         last_loss = loss.item()
 
         if step % eval_every == 0 or step == num_steps:
-            accuracy = evaluate(
+            accuracy, per_domain_accuracy = evaluate(
                 adapter, source_extractor, target_extractor, source_layer, receiver_layer, holdout_examples, label_token_ids,
             )
-            print(f"[TrainAdapter] step {step}/{num_steps}  loss={last_loss:.4f}  held-out accuracy={accuracy:.3f}")
+            domain_summary = "  ".join(
+                f"{domain}={acc:.2f}" for domain, acc in sorted(per_domain_accuracy.items())
+            )
+            print(f"[TrainAdapter] step {step}/{num_steps}  loss={last_loss:.4f}  "
+                  f"held-out accuracy={accuracy:.3f}  ({domain_summary})")
             if accuracy > best_accuracy or not has_saved:
                 best_accuracy = max(accuracy, best_accuracy)
                 has_saved = True
-                save_checkpoint(adapter, checkpoint_path, step, accuracy, source_layer, receiver_layer)
+                save_checkpoint(
+                    adapter, checkpoint_path, step, accuracy, source_layer, receiver_layer, per_domain_accuracy,
+                )
         else:
             print(f"[TrainAdapter] step {step}/{num_steps}  loss={last_loss:.4f}")
 
