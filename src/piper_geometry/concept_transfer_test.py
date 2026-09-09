@@ -35,10 +35,15 @@ Three conditions, same concept sequence, side by side:
    against.
 """
 
+import sys
 import json
 import random
 from pathlib import Path
 from datetime import datetime
+
+SRC_DIR = Path(__file__).resolve().parent.parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 import torch
 
