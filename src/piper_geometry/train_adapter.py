@@ -22,6 +22,7 @@ retrained to accommodate the other."
 import sys
 import json
 import random
+import time
 from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parent.parent
@@ -321,7 +322,7 @@ def save_checkpoint(adapter, path: Path, step: int, accuracy: float, source_laye
 def run_training(adapter, source_extractor, target_extractor, source_layer: int, receiver_layer: int,
                   train_examples: list, holdout_examples: list, label_token_ids: dict,
                   num_steps: int, learning_rate: float, eval_every: int, checkpoint_path: Path,
-                  seed: int = RNG_SEED) -> dict:
+                  seed: int = RNG_SEED, max_seconds: float = None) -> dict:
     """The loop itself: sample an example, score it, backward, step -
     repeat. Takes already-constructed extractors and an already-built
     adapter rather than building them itself, so it can run against
@@ -339,15 +340,34 @@ def run_training(adapter, source_extractor, target_extractor, source_layer: int,
     already did on that run; skipping means a transient bad step can't
     take the whole run down with it. Gradient clipping on every real step
     is an extra margin against smaller numerical spikes short of outright
-    nan/inf."""
+    nan/inf.
+
+    max_seconds is an optional wall-clock budget, checked at the top of
+    each step - "run for a few hours" is a time target, not a step count,
+    and per-step throughput on the Jetson isn't known precisely enough to
+    translate that into a num_steps guess ahead of time. num_steps still
+    acts as an upper bound either way, so a run either finishes its steps
+    or runs out of time, whichever comes first - and either way, the
+    checkpoint-on-improvement logic above means there's always a saved
+    best-so-far model, not just whatever state training happened to be in
+    at the cutoff."""
     optimizer = torch.optim.Adam(adapter.parameters(), lr=learning_rate)
     rng = random.Random(seed)
+    start_time = time.monotonic()
 
     best_accuracy = 0.0
     has_saved = False
     last_loss = None
     skipped_steps = 0
+    stopped_early = False
+    step = 0
     for step in range(1, num_steps + 1):
+        if max_seconds is not None and (time.monotonic() - start_time) > max_seconds:
+            print(f"[TrainAdapter] step {step}/{num_steps}  time budget of {max_seconds/60:.1f}min reached - stopping")
+            stopped_early = True
+            step -= 1  # the loop body below didn't run for this step
+            break
+
         domain, passage = rng.choice(train_examples)
 
         optimizer.zero_grad()
@@ -390,11 +410,14 @@ def run_training(adapter, source_extractor, target_extractor, source_layer: int,
         "final_loss": last_loss,
         "checkpoint_path": str(checkpoint_path),
         "skipped_steps": skipped_steps,
+        "steps_completed": step,
+        "stopped_early_time_budget": stopped_early,
+        "elapsed_seconds": time.monotonic() - start_time,
     }
 
 
 def train(num_steps: int = 200, learning_rate: float = 1e-4, eval_every: int = 25,
-          checkpoint_path: Path = CHECKPOINT_PATH) -> dict:
+          checkpoint_path: Path = CHECKPOINT_PATH, max_hours: float = None) -> dict:
     """Real-world entry point: loads the actual Qwen/Phi-4-mini extractors
     (both frozen - only the adapter between them ever gets a gradient),
     builds the warm-start rotation the same way build_warm_start's
@@ -431,12 +454,15 @@ def train(num_steps: int = 200, learning_rate: float = 1e-4, eval_every: int = 2
     source_dim, target_dim = warm_start.shape
     adapter = TranslationAdapter(source_dim, target_dim, warm_start=warm_start).to(target_extractor.device)
 
-    print(f"[TrainAdapter] Training for {num_steps} steps "
+    max_seconds = max_hours * 3600 if max_hours is not None else None
+    budget_desc = f"up to {num_steps} steps" if max_seconds is None else f"up to {num_steps} steps or {max_hours:.1f}h, whichever comes first"
+    print(f"[TrainAdapter] Training for {budget_desc} "
           f"({len(train_examples)} train / {len(holdout_examples)} held-out examples)...")
     result = run_training(
         adapter, source_extractor, target_extractor, source_layer, receiver_layer,
         train_examples, holdout_examples, label_token_ids,
         num_steps=num_steps, learning_rate=learning_rate, eval_every=eval_every, checkpoint_path=checkpoint_path,
+        max_seconds=max_seconds,
     )
     return result
 
@@ -445,11 +471,18 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Train a cross-model translation adapter (Qwen -> Phi-4-mini).")
-    parser.add_argument("--num-steps", type=int, default=200)
+    parser.add_argument("--num-steps", type=int, default=200, help="upper bound on steps regardless of --max-hours")
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--eval-every", type=int, default=25)
+    parser.add_argument("--max-hours", type=float, default=None,
+                         help="stop after this many wall-clock hours even if --num-steps hasn't been reached")
     args = parser.parse_args()
 
-    result = train(num_steps=args.num_steps, learning_rate=args.learning_rate, eval_every=args.eval_every)
+    result = train(
+        num_steps=args.num_steps, learning_rate=args.learning_rate, eval_every=args.eval_every,
+        max_hours=args.max_hours,
+    )
     print(f"[TrainAdapter] Done. Best held-out accuracy: {result['best_accuracy']:.3f}  "
+          f"steps completed: {result['steps_completed']}/{args.num_steps}  "
+          f"elapsed: {result['elapsed_seconds']/60:.1f}min  "
           f"checkpoint: {result['checkpoint_path']}")
