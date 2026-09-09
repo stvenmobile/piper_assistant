@@ -208,17 +208,34 @@ def forward_with_injection(model, tokenizer, device, layer_idx: int,
 def compute_scale_factor(source_extractor, target_extractor, source_layer, receiver_layer, concepts: list) -> float:
     """Same fix the qualitative test applied by hand (rotation preserves
     magnitude, so a rotated vector still carries the source model's own
-    scale, not the target layer's) - computed here from the calibration
-    concepts' last-token vectors rather than one passage's per-token
-    vectors, since build_warm_start needs a single scalar before training
-    has any passage to look at yet."""
-    source_vecs, target_vecs = [], []
+    scale, not the target layer's) - computed here across many short
+    calibration concepts rather than one passage, since build_warm_start
+    needs a single scalar before training has any passage to look at yet.
+
+    Deliberately uses extract_full_sequence, NOT
+    ResidualExtractor.extract_activations() - extract_activations()
+    L2-normalizes every vector it returns to unit length (see
+    extractor.py), which made an earlier version of this function always
+    measure a ~1.0 ratio no matter what the real activation-space scale
+    difference between the two models was. A real Jetson run with that
+    bug printed "Scale factor: 1.000x" (should have been close to the
+    ~3.7-3.9x concept_transfer_test.py's passage-based measurement
+    found), leaving the warm-started adapter's output at Qwen's native
+    scale instead of Phi-4-mini's - a real contributor to that run's loss
+    going to nan by step 4. extract_full_sequence returns raw,
+    unnormalized hidden states, matching the scale that's actually
+    injected during both training and generation."""
+    source_norms, target_norms = [], []
     for concept in concepts:
-        source_vecs.append(source_extractor.extract_activations(prompt=concept, target_layers=[source_layer])[source_layer])
-        target_vecs.append(target_extractor.extract_activations(prompt=concept, target_layers=[receiver_layer])[receiver_layer])
-    source_mean_norm = torch.stack(source_vecs).to(torch.float32).norm(dim=-1).mean().item()
-    target_mean_norm = torch.stack(target_vecs).to(torch.float32).norm(dim=-1).mean().item()
-    return target_mean_norm / source_mean_norm
+        source_states = extract_full_sequence(
+            source_extractor.model, source_extractor.tokenizer, source_extractor.device, concept, source_layer,
+        )
+        target_states = extract_full_sequence(
+            target_extractor.model, target_extractor.tokenizer, target_extractor.device, concept, receiver_layer,
+        )
+        source_norms.append(source_states.to(torch.float32).norm(dim=-1).mean().item())
+        target_norms.append(target_states.to(torch.float32).norm(dim=-1).mean().item())
+    return (sum(target_norms) / len(target_norms)) / (sum(source_norms) / len(source_norms))
 
 
 def compute_loss_and_prediction(adapter, source_extractor, target_extractor, source_layer, receiver_layer,
@@ -241,7 +258,14 @@ def compute_loss_and_prediction(adapter, source_extractor, target_extractor, sou
         target_extractor.model, target_extractor.tokenizer, target_extractor.device, receiver_layer, injected_states,
     )
     label_id = label_token_ids[domain]
-    loss = F.cross_entropy(logits.unsqueeze(0), torch.tensor([label_id], device=logits.device))
+    # logits come straight out of Phi-4-mini's fp16 forward pass (the
+    # extractor loads models in float16 on CUDA - see extractor.py).
+    # log_softmax inside cross_entropy is a known fp16 overflow source,
+    # and it's the loss this whole graph backpropagates from - computing
+    # it in float32 while leaving the forward pass itself in fp16 is the
+    # standard mixed-precision fix, and a real Jetson run without it went
+    # to nan by step 4.
+    loss = F.cross_entropy(logits.float().unsqueeze(0), torch.tensor([label_id], device=logits.device))
     predicted_id = int(logits.argmax().item())
     return loss, predicted_id
 
@@ -288,14 +312,25 @@ def run_training(adapter, source_extractor, target_extractor, source_layer: int,
     lightweight fakes in a test without ever touching a real model
     download; train() below is the only place that does real model
     loading, and it just hands off to this function once that's done.
-    Checkpoints only on a held-out accuracy improvement, not every eval,
-    so CHECKPOINT_PATH always holds the best model seen, not merely the
-    most recent one."""
+    Checkpoints on a held-out accuracy improvement, or on the very first
+    eval regardless - without that second case, a run whose accuracy
+    never rises above the 0.0 starting point (as happened on a real
+    Jetson run derailed by a since-fixed nan bug) saves nothing at all,
+    leaving no artifact to even diagnose from. A non-finite loss (nan/inf)
+    skips that step's optimizer update entirely rather than applying it -
+    Adam's moment estimates get permanently poisoned by even one nan
+    gradient, corrupting every step after it the same way fp16 overflow
+    already did on that run; skipping means a transient bad step can't
+    take the whole run down with it. Gradient clipping on every real step
+    is an extra margin against smaller numerical spikes short of outright
+    nan/inf."""
     optimizer = torch.optim.Adam(adapter.parameters(), lr=learning_rate)
     rng = random.Random(seed)
 
     best_accuracy = 0.0
+    has_saved = False
     last_loss = None
+    skipped_steps = 0
     for step in range(1, num_steps + 1):
         domain, passage = rng.choice(train_examples)
 
@@ -303,7 +338,16 @@ def run_training(adapter, source_extractor, target_extractor, source_layer: int,
         loss, _ = compute_loss_and_prediction(
             adapter, source_extractor, target_extractor, source_layer, receiver_layer, domain, passage, label_token_ids,
         )
+
+        if not torch.isfinite(loss):
+            skipped_steps += 1
+            print(f"[TrainAdapter] step {step}/{num_steps}  loss=nan/inf - skipping this step's update "
+                  f"({skipped_steps} skipped so far)")
+            optimizer.zero_grad()
+            continue
+
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(adapter.parameters(), max_norm=1.0)
         optimizer.step()
         last_loss = loss.item()
 
@@ -312,13 +356,19 @@ def run_training(adapter, source_extractor, target_extractor, source_layer: int,
                 adapter, source_extractor, target_extractor, source_layer, receiver_layer, holdout_examples, label_token_ids,
             )
             print(f"[TrainAdapter] step {step}/{num_steps}  loss={last_loss:.4f}  held-out accuracy={accuracy:.3f}")
-            if accuracy > best_accuracy:
-                best_accuracy = accuracy
+            if accuracy > best_accuracy or not has_saved:
+                best_accuracy = max(accuracy, best_accuracy)
+                has_saved = True
                 save_checkpoint(adapter, checkpoint_path, step, accuracy, source_layer, receiver_layer)
         else:
             print(f"[TrainAdapter] step {step}/{num_steps}  loss={last_loss:.4f}")
 
-    return {"best_accuracy": best_accuracy, "final_loss": last_loss, "checkpoint_path": str(checkpoint_path)}
+    return {
+        "best_accuracy": best_accuracy,
+        "final_loss": last_loss,
+        "checkpoint_path": str(checkpoint_path),
+        "skipped_steps": skipped_steps,
+    }
 
 
 def train(num_steps: int = 200, learning_rate: float = 1e-4, eval_every: int = 25,
