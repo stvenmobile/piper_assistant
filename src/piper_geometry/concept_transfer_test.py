@@ -314,6 +314,20 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
     _print_norm_stats("random_states (translated via random W)", random_norms)
     _print_norm_stats("target_hidden_native (Phi-4-mini L%d, native)" % receiver_layer, target_native_norms)
 
+    # A rotation preserves direction, not magnitude - rotated/random_states
+    # are mathematically guaranteed to carry Qwen's own scale, which the
+    # norm check above confirms is substantially different from Phi-4-mini's
+    # native scale at this layer. Rescaling by the ratio of mean norms is
+    # the simplest fix a rotation can't provide on its own; not
+    # position-aware (both distributions have large outlier positions, e.g.
+    # a much larger first-token norm - a known "attention sink" pattern in
+    # transformer residual streams), but a reasonable first attempt before
+    # anything more elaborate.
+    scale_factor = target_native_norms["mean"] / source_norms["mean"]
+    print(f"[ConceptTransferTest] Rescaling translated vectors by {scale_factor:.3f}x to match target's native scale...")
+    rotated_states = rotated_states * scale_factor
+    random_states = random_states * scale_factor
+
     target_model = target_extractor.model
     target_tokenizer = target_extractor.tokenizer
     device = target_extractor.device
@@ -341,6 +355,7 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
         "rotated_norms": rotated_norms,
         "random_norms": random_norms,
         "target_native_norms": target_native_norms,
+        "scale_factor": scale_factor,
         "rotated_output": rotated_output,
         "random_rotation_output": random_output,
         "self_roundtrip_output": self_output,
@@ -403,6 +418,8 @@ translation could have fixed by picking a better rotation.
 | rotated_states (translated via W) | {result['rotated_norms']['mean']:.2f} | {result['rotated_norms']['std']:.2f} | {result['rotated_norms']['min']:.2f} | {result['rotated_norms']['max']:.2f} |
 | random_states (translated via random W) | {result['random_norms']['mean']:.2f} | {result['random_norms']['std']:.2f} | {result['random_norms']['min']:.2f} | {result['random_norms']['max']:.2f} |
 | target_hidden_native (Phi-4-mini L{result['receiver_layer']}, native) | {result['target_native_norms']['mean']:.2f} | {result['target_native_norms']['std']:.2f} | {result['target_native_norms']['min']:.2f} | {result['target_native_norms']['max']:.2f} |
+
+**Scale correction applied**: rotated/random states rescaled by {result['scale_factor']:.3f}x (target-native mean norm / source-native mean norm) before injection, since a rotation preserves direction but not magnitude.
 
 ## 1. Rotated (translated passage, layer-{result['receiver_layer']} injection)
 {result['rotated_output']}
