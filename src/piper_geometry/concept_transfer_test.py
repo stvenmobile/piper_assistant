@@ -74,6 +74,15 @@ import torch
 
 from piper_geometry.extractor import ResidualExtractor
 from piper_geometry.congruence_optimizer import CROSS_MODEL_CONFIGS, DEFAULT_MODEL
+from piper_geometry.layer_injection import (
+    build_rotation,
+    random_semi_orthogonal_like,
+    extract_full_sequence,
+    norm_stats,
+    print_norm_stats,
+    generate_with_injection,
+    generate_normally,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 CONCEPTS_PATH = REPO_ROOT / "data" / "checkpoints" / "concepts_dictionary.json"
@@ -102,158 +111,6 @@ def _primary_concepts(phrases: list) -> list:
     in this package (export_dual_graph.py) - not meant to be individually
     meaningful, just calibration bulk."""
     return [p for p in phrases if not p.startswith(("Advanced corollary", "Empirical boundary condition"))]
-
-
-def _random_semi_orthogonal_like(W: torch.Tensor) -> torch.Tensor:
-    """A random matrix of the same shape as W, with the same orthogonality
-    property W actually has, for the negative control condition.
-
-    W comes from an SVD (U @ Vh, U square orthogonal, Vh row-orthonormal),
-    so W @ W.T = I on the source-dimension side - its ROWS are
-    orthonormal, not its columns. That's the only orthogonality direction
-    that's even possible here: source_dim (896) < target_dim (3072), and
-    you cannot fit more mutually-orthogonal columns than there are
-    dimensions to hold them in (QR on a "wide" matrix caps out at
-    min(rows, cols) orthonormal columns - trying to get 3072 orthonormal
-    columns out of 896-dimensional rows is a mathematical impossibility,
-    not just an unlikely random draw). QR on the transpose (a "tall"
-    matrix, cols > rows) gives orthonormal columns there instead;
-    transposing back yields the row-orthonormal shape actually needed.
-    """
-    rows, cols = W.shape
-    # QR runs on CPU regardless of W's own device, then the result moves
-    # to W's device afterward - not just a style choice. This Jetson's
-    # PyTorch build has a broken CUDA cusolver linkage for at least some
-    # GPU linalg routines (torch.linalg.qr on CUDA fails here with
-    # "undefined symbol: cusolverDnXsyevBatched_bufferSize"). CPU QR is
-    # proven to work: build_rotation's SVD already runs entirely on CPU,
-    # for the unrelated reason that ResidualExtractor.extract_activations()
-    # always returns .cpu() tensors, and never hits this failure.
-    Q, _ = torch.linalg.qr(torch.randn(cols, rows, dtype=W.dtype))
-    return Q.t().to(device=W.device)
-
-
-def build_rotation(source_extractor, target_extractor, source_layer, receiver_layer, calibration_concepts):
-    """Same math as CongruenceOptimizer.run_trial's rotation step, extracted
-    standalone since this script needs the rotation matrix itself, not
-    just its congruence/accuracy/cosine-sim summary."""
-    source_vecs, target_vecs = [], []
-    for concept in calibration_concepts:
-        src_acts = source_extractor.extract_activations(prompt=concept, target_layers=[source_layer])
-        tgt_acts = target_extractor.extract_activations(prompt=concept, target_layers=[receiver_layer])
-        source_vecs.append(src_acts[source_layer])
-        target_vecs.append(tgt_acts[receiver_layer])
-
-    A = torch.stack(source_vecs).to(torch.float32)
-    B = torch.stack(target_vecs).to(torch.float32)
-    M = A.t() @ B
-    U, S, Vh = torch.linalg.svd(M, full_matrices=False)
-    W = U @ Vh
-    return W
-
-
-def extract_full_sequence(model, tokenizer, device, text: str, layer_idx: int) -> torch.Tensor:
-    """Every token's hidden state at layer_idx for `text`, not just a
-    last-token summary - generation needs the whole sequence to avoid
-    stripping away the context a real passage carries."""
-    inputs = tokenizer(text, return_tensors="pt").to(device)
-    with torch.no_grad():
-        outputs = model(**inputs, output_hidden_states=True)
-    return outputs.hidden_states[layer_idx][0]  # (seq_len, hidden_dim), batch dim dropped
-
-
-def norm_stats(states: torch.Tensor) -> dict:
-    """Per-token L2 norm summary, to check whether translated vectors
-    carry a systematically different scale than what the target layer's
-    own native activations look like. A Procrustes rotation is provably
-    norm-preserving (W @ W.T = I by construction), so rotated/random
-    states are mathematically guaranteed to carry Qwen's original
-    magnitudes unchanged - if that turns out to differ from Phi-4-mini's
-    own native scale at the same layer, translation can't close that gap
-    on its own, no matter how good the rotation's direction is."""
-    norms = states.norm(dim=-1)
-    return {
-        "mean": norms.mean().item(),
-        "std": norms.std().item(),
-        "min": norms.min().item(),
-        "max": norms.max().item(),
-    }
-
-
-def _print_norm_stats(label: str, stats: dict) -> None:
-    print(f"[ConceptTransferTest]   {label}: mean={stats['mean']:.2f}  "
-          f"std={stats['std']:.2f}  min={stats['min']:.2f}  max={stats['max']:.2f}")
-
-
-class _LayerInjectionHook:
-    """Overrides one transformer layer's output on its first invocation -
-    the prefill pass over the full placeholder sequence - with externally
-    supplied hidden states, then gets out of the way for every subsequent
-    single-token decode step, which must run unmodified so newly
-    generated tokens reflect the model's own real computation given
-    whatever is now sitting in the stream at the injected positions."""
-
-    def __init__(self, injected_states: torch.Tensor):
-        self.injected_states = injected_states  # (1, seq_len, hidden_dim)
-        self.applied = False
-
-    def __call__(self, module, inputs, output):
-        if self.applied:
-            return output
-        self.applied = True
-        is_tuple = isinstance(output, tuple)
-        hidden = output[0] if is_tuple else output
-        if hidden.shape[1] != self.injected_states.shape[1]:
-            # Not the prefill pass we expected - leave it alone rather
-            # than silently apply an injection with mismatched shape.
-            return output
-        new_hidden = self.injected_states.to(dtype=hidden.dtype, device=hidden.device)
-        return (new_hidden,) + output[1:] if is_tuple else new_hidden
-
-
-def generate_with_injection(model, tokenizer, device, layer_idx: int, injected_states: torch.Tensor,
-                             max_new_tokens: int = 60) -> str:
-    """Runs a neutral placeholder sequence through the model with
-    layer_idx's output overridden (via _LayerInjectionHook) on the
-    prefill pass only, then decodes just the newly generated continuation
-    - not the placeholder prefix, which carries no information itself."""
-    seq_len = injected_states.shape[0]
-    placeholder_id = tokenizer.eos_token_id
-    input_ids = torch.full((1, seq_len), placeholder_id, dtype=torch.long, device=device)
-    attention_mask = torch.ones_like(input_ids)
-
-    hook = _LayerInjectionHook(injected_states.unsqueeze(0))
-    handle = model.model.layers[layer_idx].register_forward_hook(hook)
-    try:
-        with torch.no_grad():
-            output_ids = model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=max_new_tokens,
-                do_sample=True,
-                temperature=0.6,
-                pad_token_id=tokenizer.eos_token_id,
-            )
-    finally:
-        handle.remove()
-
-    if not hook.applied:
-        print(f"[ConceptTransferTest] WARNING: injection hook never fired for layer {layer_idx}")
-    return tokenizer.decode(output_ids[0, seq_len:], skip_special_tokens=True).strip()
-
-
-def generate_normally(model, tokenizer, device, text: str, max_new_tokens: int = 60) -> str:
-    inputs = tokenizer(text, return_tensors="pt").to(device)
-    seq_len = inputs.input_ids.shape[1]
-    with torch.no_grad():
-        output_ids = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=0.6,
-            pad_token_id=tokenizer.eos_token_id,
-        )
-    return tokenizer.decode(output_ids[0, seq_len:], skip_special_tokens=True).strip()
 
 
 def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int = 60) -> dict:
@@ -290,7 +147,7 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
     # matrix-multiplied against.
     W = build_rotation(source_extractor, target_extractor, source_layer, receiver_layer, calibration_concepts)
     W = W.to(source_extractor.device)
-    W_random = _random_semi_orthogonal_like(W)
+    W_random = random_semi_orthogonal_like(W)
 
     print("[ConceptTransferTest] Extracting full-sequence hidden states for the passage...")
     source_hidden = extract_full_sequence(
@@ -309,10 +166,10 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
     rotated_norms = norm_stats(rotated_states)
     random_norms = norm_stats(random_states)
     target_native_norms = norm_stats(target_hidden_native)
-    _print_norm_stats("source_hidden (Qwen L%d, native)" % source_layer, source_norms)
-    _print_norm_stats("rotated_states (translated via W)", rotated_norms)
-    _print_norm_stats("random_states (translated via random W)", random_norms)
-    _print_norm_stats("target_hidden_native (Phi-4-mini L%d, native)" % receiver_layer, target_native_norms)
+    print_norm_stats("source_hidden (Qwen L%d, native)" % source_layer, source_norms)
+    print_norm_stats("rotated_states (translated via W)", rotated_norms)
+    print_norm_stats("random_states (translated via random W)", random_norms)
+    print_norm_stats("target_hidden_native (Phi-4-mini L%d, native)" % receiver_layer, target_native_norms)
 
     # A rotation preserves direction, not magnitude - rotated/random_states
     # are mathematically guaranteed to carry Qwen's own scale, which the
