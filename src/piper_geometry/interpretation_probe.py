@@ -49,6 +49,7 @@ from piper_geometry.layer_injection import (
 )
 from piper_geometry.train_adapter import TARGET_PREFIX, CALIBRATION_SIZE, RNG_SEED, CONCEPTS_PATH, _primary_concepts
 from piper_geometry.evaluate_adapter import load_trained_adapter
+from piper_geometry.concept_transfer_test import append_condition
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 EXPERIMENTS_DIR = REPO_ROOT / "obsidian" / "Experiments"
@@ -126,31 +127,51 @@ def run_probe(domain: str = "physics", num_concepts: int = 4, max_new_tokens: in
     target_tokenizer = target_extractor.tokenizer
     device = target_extractor.device
 
-    print("[InterpretationProbe] Generating: 1. Real Translation...")
-    real_output = generate_interpretation(
-        target_model, target_tokenizer, device, receiver_layer, real_translation_states, framing_prompt, max_new_tokens,
-    )
-    print("[InterpretationProbe] Generating: 2. Random Rotation (negative control)...")
-    random_output = generate_interpretation(
-        target_model, target_tokenizer, device, receiver_layer, random_states, framing_prompt, max_new_tokens,
-    )
-    print("[InterpretationProbe] Generating: 3. Self Round-Trip (mechanism-only control)...")
-    self_output = generate_interpretation(
-        target_model, target_tokenizer, device, receiver_layer, target_hidden_native, framing_prompt, max_new_tokens,
-    )
-    print("[InterpretationProbe] Generating: 4. Real Text (reference, no injection)...")
-    reference_output = generate_normally(
-        target_model, target_tokenizer, device, passage + framing_prompt, max_new_tokens,
-    )
+    # Written before any generation is attempted, and each condition's
+    # section appended immediately after it completes (or fails) - the
+    # random-rotation condition has triggered a CUDA device-side assert
+    # before (see concept_transfer_test.py's own history of this exact
+    # failure), which corrupts the CUDA context for the rest of the
+    # process. A crash can't be recovered from in-process, but it no
+    # longer has to cost every condition that already succeeded before it.
+    note_file = create_note({
+        "domain": domain, "passage": passage, "framing_prompt": framing_prompt,
+        "translation_source": translation_source_desc,
+        "source_layer": source_layer, "receiver_layer": receiver_layer,
+        "target_model": target_model_name,
+    })
 
-    for number, title, output in [
-        (1, "Real Translation", real_output),
-        (2, "Random Rotation (negative control)", random_output),
-        (3, "Self Round-Trip (mechanism-only control)", self_output),
-        (4, "Real Text (reference, no injection)", reference_output),
-    ]:
+    def _run_condition(number: int, title: str, fn, *fn_args):
+        print(f"[InterpretationProbe] Generating: {number}. {title}...")
+        try:
+            output = fn(*fn_args)
+        except Exception as e:
+            append_condition(note_file, number, title, f"CRASHED: {type(e).__name__}: {e}")
+            raise
+        append_condition(note_file, number, title, output)
         print(f"\n=== {number}. {title.upper()} ===")
         print(output)
+        return output
+
+    real_output = _run_condition(
+        1, "Real Translation",
+        generate_interpretation, target_model, target_tokenizer, device, receiver_layer,
+        real_translation_states, framing_prompt, max_new_tokens,
+    )
+    random_output = _run_condition(
+        2, "Random Rotation (negative control)",
+        generate_interpretation, target_model, target_tokenizer, device, receiver_layer,
+        random_states, framing_prompt, max_new_tokens,
+    )
+    self_output = _run_condition(
+        3, "Self Round-Trip (mechanism-only control)",
+        generate_interpretation, target_model, target_tokenizer, device, receiver_layer,
+        target_hidden_native, framing_prompt, max_new_tokens,
+    )
+    reference_output = _run_condition(
+        4, "Real Text (reference, no injection)",
+        generate_normally, target_model, target_tokenizer, device, passage + framing_prompt, max_new_tokens,
+    )
 
     result = {
         "domain": domain, "passage": passage, "framing_prompt": framing_prompt,
@@ -158,15 +179,18 @@ def run_probe(domain: str = "physics", num_concepts: int = 4, max_new_tokens: in
         "real_output": real_output, "random_output": random_output,
         "self_output": self_output, "reference_output": reference_output,
         "source_layer": source_layer, "receiver_layer": receiver_layer,
-        "target_model": target_model_name,
+        "target_model": target_model_name, "note_file": note_file,
     }
-    note_file = _log_note(result)
-    result["note_file"] = note_file
     print(f"\n[InterpretationProbe] Logged to {note_file}")
     return result
 
 
-def _log_note(info: dict) -> Path:
+def create_note(info: dict) -> Path:
+    """Writes the note's frontmatter and header before any generation is
+    attempted - each condition's section is appended to this same file
+    afterward via concept_transfer_test.append_condition (already
+    generic - doesn't assume which conditions or how many), so partial
+    results survive a crash partway through."""
     EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
     exp_id = f"INTERP-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     note_file = EXPERIMENTS_DIR / f"{exp_id}.md"
@@ -193,18 +217,6 @@ tags:
 Not meant to be judged from condition 1 alone - only trust a difference
 that shows up as more genuinely related to the passage in condition 1
 than in condition 2 (the negative control), across more than one run.
-
-## 1. Real Translation
-{info['real_output']}
-
-## 2. Random Rotation (negative control)
-{info['random_output']}
-
-## 3. Self Round-Trip (mechanism-only control)
-{info['self_output']}
-
-## 4. Real Text (reference, no injection)
-{info['reference_output']}
 """
     note_file.write_text(content, encoding="utf-8")
     return note_file
