@@ -53,10 +53,16 @@ from piper_geometry.evaluate_adapter import load_trained_adapter
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 EXPERIMENTS_DIR = REPO_ROOT / "obsidian" / "Experiments"
 
-DEFAULT_FRAMING_PROMPT = (
-    " Try to make sense of the following geometrical, spatial relationships "
-    "and describe them in natural-language concepts:"
-)
+# A first version of this prompt used "geometrical, spatial relationships"
+# - an instruction-tuned model reads that literally as "solve a geometry
+# problem," not as an invitation to freely associate. Confirmed by the
+# REAL TEXT (no-injection) condition producing the same geometry-textbook
+# pattern as the injected conditions - proof the wording, not the
+# injection mechanism, was driving the output. Avoids any technical
+# trigger word (geometry, spatial, dimensional, vector) in favor of
+# experiential language, closer to asking a person "what does this
+# feeling remind you of" than "describe this shape."
+DEFAULT_FRAMING_PROMPT = " What does this remind you of? Describe your impression, in your own words:"
 
 
 def run_probe(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int = 60,
