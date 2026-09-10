@@ -201,6 +201,57 @@ def generate_with_injection(model, tokenizer, device, layer_idx: int, injected_s
     return tokenizer.decode(output_ids[0, seq_len:], skip_special_tokens=True).strip()
 
 
+def generate_interpretation(model, tokenizer, device, layer_idx: int, injected_states: torch.Tensor,
+                             framing_prompt: str, max_new_tokens: int = 60) -> str:
+    """A third way of asking what an injection carries, alongside
+    generate_with_injection (free continuation from nothing but the
+    injection) and forward_with_injection (one classification token after
+    a fixed suffix): inject the representation, follow it with a real
+    natural-language framing prompt ("try to make sense of this and
+    describe what it reminds you of"), then generate freely. Lets the
+    receiving model interpret/associate rather than reconstruct or
+    classify - a softer, more human-like way to ask "does this carry
+    meaning," and a different question than either of train_adapter.py's
+    two objectives tried to optimize for.
+
+    Uses PartialLayerInjectionHook (not LayerInjectionHook), since the
+    prefill sequence here is longer than just the injected span - it also
+    carries the framing prompt's real tokens. Structurally identical to
+    train_adapter.py's forward_with_injection (inject a leading span,
+    real prompt tokens follow it), just handed to generate() for free
+    continuation instead of read for one position's logits.
+    PartialLayerInjectionHook's shape check (it has no "applied" flag,
+    unlike LayerInjectionHook) still does the right thing across
+    generate()'s decode steps: each decode step's hidden shape is a
+    single new token, which is shorter than inject_len, so the hook
+    correctly leaves every decode step untouched after firing once on the
+    full prefill call."""
+    inject_len = injected_states.shape[0]
+    placeholder_id = tokenizer.eos_token_id
+    placeholder_ids = torch.full((1, inject_len), placeholder_id, dtype=torch.long, device=device)
+    prompt_ids = tokenizer(framing_prompt, return_tensors="pt", add_special_tokens=False).input_ids.to(device)
+    input_ids = torch.cat([placeholder_ids, prompt_ids], dim=1)
+    attention_mask = torch.ones_like(input_ids)
+    prefix_len = input_ids.shape[1]
+
+    hook = PartialLayerInjectionHook(injected_states.unsqueeze(0))
+    handle = model.model.layers[layer_idx].register_forward_hook(hook)
+    try:
+        with torch.no_grad():
+            output_ids = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=0.6,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+    finally:
+        handle.remove()
+
+    return tokenizer.decode(output_ids[0, prefix_len:], skip_special_tokens=True).strip()
+
+
 def generate_normally(model, tokenizer, device, text: str, max_new_tokens: int = 60) -> str:
     inputs = tokenizer(text, return_tensors="pt").to(device)
     seq_len = inputs.input_ids.shape[1]
