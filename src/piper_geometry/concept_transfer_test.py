@@ -83,6 +83,7 @@ from piper_geometry.layer_injection import (
     generate_with_injection,
     generate_normally,
 )
+from piper_geometry.evaluate_adapter import load_trained_adapter
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 CONCEPTS_PATH = REPO_ROOT / "data" / "checkpoints" / "concepts_dictionary.json"
@@ -113,7 +114,8 @@ def _primary_concepts(phrases: list) -> list:
     return [p for p in phrases if not p.startswith(("Advanced corollary", "Empirical boundary condition"))]
 
 
-def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int = 60) -> dict:
+def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int = 60,
+             adapter_checkpoint: Path = None) -> dict:
     config = CROSS_MODEL_CONFIGS[TARGET_PREFIX]
     target_model_name = config["target_model"]
     source_layer, receiver_layer = config["param_grid"]["layer_pair"][0]
@@ -185,6 +187,22 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
     rotated_states = rotated_states * scale_factor
     random_states = random_states * scale_factor
 
+    # Optional 5th condition: a trained adapter (train_adapter.py) instead
+    # of the fixed rotation. Deliberately no manual rescale here, unlike
+    # rotated/random above - the whole point of training past the fixed
+    # rotation was for the adapter to learn its own scale from the task
+    # loss directly; reapplying scale_factor on top would double-correct
+    # a magnitude the adapter already accounts for in its own weights.
+    adapter_states = None
+    adapter_norms = None
+    if adapter_checkpoint is not None:
+        print(f"[ConceptTransferTest] Loading trained adapter from {adapter_checkpoint}...")
+        trained_adapter, _ = load_trained_adapter(adapter_checkpoint, device=target_extractor.device)
+        with torch.no_grad():
+            adapter_states = trained_adapter(source_hidden.to(target_extractor.device))
+        adapter_norms = norm_stats(adapter_states)
+        print_norm_stats("adapter_states (translated via trained adapter, no manual rescale)", adapter_norms)
+
     target_model = target_extractor.model
     target_tokenizer = target_extractor.tokenizer
     device = target_extractor.device
@@ -204,6 +222,8 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
         "random_norms": random_norms,
         "target_native_norms": target_native_norms,
         "scale_factor": scale_factor,
+        "adapter_checkpoint": str(adapter_checkpoint) if adapter_checkpoint is not None else None,
+        "adapter_norms": adapter_norms,
     }
     # Written before any generation is attempted, and each condition's
     # section appended immediately after it completes (or fails) - a
@@ -245,13 +265,20 @@ def run_test(domain: str = "physics", num_concepts: int = 4, max_new_tokens: int
         4, "Real Text (upper bound, unmodified generation)",
         generate_normally, target_model, target_tokenizer, device, passage, max_new_tokens,
     )
+    adapter_output = None
+    if adapter_states is not None:
+        adapter_output = _run_condition(
+            5, "Trained Adapter (learned map, layer injection)",
+            generate_with_injection, target_model, target_tokenizer, device, receiver_layer, adapter_states, max_new_tokens,
+        )
 
-    append_evaluation_note(note_file)
+    append_evaluation_note(note_file, has_adapter_condition=adapter_output is not None)
 
     result = dict(header_info)
     result.update({
         "rotated_output": rotated_output,
         "random_rotation_output": random_output,
+        "adapter_output": adapter_output,
         "self_roundtrip_output": self_output,
         "real_text_output": real_output,
         "note_file": note_file,
@@ -268,6 +295,18 @@ def create_note(info: dict) -> Path:
     now_dt = datetime.now()
     exp_id = f"CTRANSFER-{now_dt.strftime('%Y%m%d-%H%M%S')}"
     note_file = EXPERIMENTS_DIR / f"{exp_id}.md"
+
+    # Optional: only present when run_test() was given an
+    # adapter_checkpoint. info.get(...) rather than info[...] so a caller
+    # that never added this key (any pre-existing 4-condition-only info
+    # dict) still works unchanged.
+    adapter_norms = info.get("adapter_norms")
+    adapter_row = ""
+    if adapter_norms is not None:
+        adapter_row = (
+            f"| adapter_states (translated via trained adapter, checkpoint: {info.get('adapter_checkpoint')}) "
+            f"| {adapter_norms['mean']:.2f} | {adapter_norms['std']:.2f} | {adapter_norms['min']:.2f} | {adapter_norms['max']:.2f} |\n"
+        )
 
     content = f"""---
 id: {exp_id}
@@ -307,8 +346,8 @@ translation could have fixed by picking a better rotation.
 | rotated_states (translated via W) | {info['rotated_norms']['mean']:.2f} | {info['rotated_norms']['std']:.2f} | {info['rotated_norms']['min']:.2f} | {info['rotated_norms']['max']:.2f} |
 | random_states (translated via random W) | {info['random_norms']['mean']:.2f} | {info['random_norms']['std']:.2f} | {info['random_norms']['min']:.2f} | {info['random_norms']['max']:.2f} |
 | target_hidden_native (Phi-4-mini L{info['receiver_layer']}, native) | {info['target_native_norms']['mean']:.2f} | {info['target_native_norms']['std']:.2f} | {info['target_native_norms']['min']:.2f} | {info['target_native_norms']['max']:.2f} |
-
-**Scale correction applied**: rotated/random states rescaled by {info['scale_factor']:.3f}x (target-native mean norm / source-native mean norm) before injection, since a rotation preserves direction but not magnitude.
+{adapter_row}
+**Scale correction applied**: rotated/random states rescaled by {info['scale_factor']:.3f}x (target-native mean norm / source-native mean norm) before injection, since a rotation preserves direction but not magnitude. The trained adapter (if present above) is deliberately NOT rescaled - it learned its own effective scale from the training loss directly.
 """
     note_file.write_text(content, encoding="utf-8")
     return note_file
@@ -319,9 +358,17 @@ def append_condition(note_file: Path, number: int, title: str, output: str) -> N
         f.write(f"\n## {number}. {title}\n{output}\n")
 
 
-def append_evaluation_note(note_file: Path) -> None:
+def append_evaluation_note(note_file: Path, has_adapter_condition: bool = False) -> None:
+    adapter_bullet = (
+        "\n- Does condition 5 (trained adapter) read as more coherent than "
+        "condition 1 (fixed rotation)? A classification accuracy number "
+        "alone can't distinguish \"learned a real correction\" from "
+        "\"memorized the training set\" - this is a human check on what "
+        "the difference actually looks like in generated text.\n"
+        if has_adapter_condition else ""
+    )
     with open(note_file, "a", encoding="utf-8") as f:
-        f.write("""
+        f.write(f"""
 ## Evaluation
 Manual read for now, no automated scoring yet:
 - Does condition 1 land closer to condition 4's territory (domain/theme)
@@ -329,8 +376,7 @@ Manual read for now, no automated scoring yet:
 - Does condition 3 come out coherent? If not, the injection mechanism
   itself is lossy independent of any cross-model translation, and that's
   the bottleneck to fix before cross-model quality is worth chasing
-  further.
-""")
+  further.{adapter_bullet}""")
 
 
 if __name__ == "__main__":
@@ -340,7 +386,13 @@ if __name__ == "__main__":
     parser.add_argument("--domain", default="physics",
                          choices=["physics", "computer_science", "philosophy", "mathematics", "cognitive_science", "biology"])
     parser.add_argument("--num-concepts", type=int, default=4)
+    parser.add_argument("--adapter-checkpoint", type=str, default=None,
+                         help="path to a train_adapter.py checkpoint; adds a 5th 'trained adapter' "
+                              "generation condition alongside the fixed-rotation comparison")
     args = parser.parse_args()
 
-    result = run_test(domain=args.domain, num_concepts=args.num_concepts)
+    result = run_test(
+        domain=args.domain, num_concepts=args.num_concepts,
+        adapter_checkpoint=Path(args.adapter_checkpoint) if args.adapter_checkpoint else None,
+    )
     print(f"\n[ConceptTransferTest] Logged to {result['note_file']}")

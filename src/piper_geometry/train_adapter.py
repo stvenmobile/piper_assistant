@@ -446,14 +446,23 @@ def run_training(adapter, source_extractor, target_extractor, source_layer: int,
 
 
 def train(num_steps: int = 200, learning_rate: float = 1e-4, eval_every: int = 25,
-          checkpoint_path: Path = CHECKPOINT_PATH, max_hours: float = None) -> dict:
+          checkpoint_path: Path = CHECKPOINT_PATH, max_hours: float = None, use_warm_start: bool = True) -> dict:
     """Real-world entry point: loads the actual Qwen/Phi-4-mini extractors
     (both frozen - only the adapter between them ever gets a gradient),
     builds the warm-start rotation the same way build_warm_start's
     docstring describes, constructs the adapter from it, then hands
     everything to run_training. Kept thin and separate from run_training
     on purpose - this is the one function in the module a test can't call
-    directly, since ResidualExtractor(...) downloads/loads a real model."""
+    directly, since ResidualExtractor(...) downloads/loads a real model.
+
+    use_warm_start=False is the random-init control: a trained checkpoint
+    reaching ~100% held-out accuracy could mean the warm-started rotation
+    gave training a genuinely useful starting direction, or it could mean
+    an overparameterized linear map (2.75M parameters, ~80 training
+    examples after the padding filter) can memorize this small a
+    classification task from ANY starting point, warm-started or not. If
+    a randomly-initialized adapter reaches similar accuracy the same way,
+    that's evidence for the second explanation, not the first."""
     config = CROSS_MODEL_CONFIGS[TARGET_PREFIX]
     target_model_name = config["target_model"]
     source_layer, receiver_layer = config["param_grid"]["layer_pair"][0]
@@ -472,16 +481,21 @@ def train(num_steps: int = 200, learning_rate: float = 1e-4, eval_every: int = 2
     train_examples, holdout_examples = load_examples()
     label_token_ids = resolve_label_token_ids(target_extractor.tokenizer)
 
-    print(f"[TrainAdapter] Building warm-start rotation from {CALIBRATION_SIZE} calibration concepts...")
-    calibration_concepts = _load_calibration_concepts()
-    scale_factor = compute_scale_factor(source_extractor, target_extractor, source_layer, receiver_layer, calibration_concepts)
-    print(f"[TrainAdapter] Scale factor: {scale_factor:.3f}x")
-    warm_start = build_warm_start(
-        source_extractor, target_extractor, source_layer, receiver_layer, calibration_concepts, scale_factor,
-    ).to(target_extractor.device)
-
-    source_dim, target_dim = warm_start.shape
-    adapter = TranslationAdapter(source_dim, target_dim, warm_start=warm_start).to(target_extractor.device)
+    if use_warm_start:
+        print(f"[TrainAdapter] Building warm-start rotation from {CALIBRATION_SIZE} calibration concepts...")
+        calibration_concepts = _load_calibration_concepts()
+        scale_factor = compute_scale_factor(source_extractor, target_extractor, source_layer, receiver_layer, calibration_concepts)
+        print(f"[TrainAdapter] Scale factor: {scale_factor:.3f}x")
+        warm_start = build_warm_start(
+            source_extractor, target_extractor, source_layer, receiver_layer, calibration_concepts, scale_factor,
+        ).to(target_extractor.device)
+        source_dim, target_dim = warm_start.shape
+        adapter = TranslationAdapter(source_dim, target_dim, warm_start=warm_start).to(target_extractor.device)
+    else:
+        print("[TrainAdapter] RANDOM-INIT CONTROL: skipping the warm-start rotation entirely.")
+        source_dim = source_extractor.model.config.hidden_size
+        target_dim = target_extractor.model.config.hidden_size
+        adapter = TranslationAdapter(source_dim, target_dim, warm_start=None).to(target_extractor.device)
 
     max_seconds = max_hours * 3600 if max_hours is not None else None
     budget_desc = f"up to {num_steps} steps" if max_seconds is None else f"up to {num_steps} steps or {max_hours:.1f}h, whichever comes first"
@@ -505,11 +519,17 @@ if __name__ == "__main__":
     parser.add_argument("--eval-every", type=int, default=25)
     parser.add_argument("--max-hours", type=float, default=None,
                          help="stop after this many wall-clock hours even if --num-steps hasn't been reached")
+    parser.add_argument("--checkpoint-path", type=str, default=None,
+                         help="where to save the best checkpoint (default: data/checkpoints/trained_adapter.pt)")
+    parser.add_argument("--no-warm-start", action="store_true",
+                         help="random-init control: skip the warm-start rotation entirely (use a different "
+                              "--checkpoint-path so this doesn't overwrite a real trained checkpoint)")
     args = parser.parse_args()
 
     result = train(
         num_steps=args.num_steps, learning_rate=args.learning_rate, eval_every=args.eval_every,
-        max_hours=args.max_hours,
+        max_hours=args.max_hours, use_warm_start=not args.no_warm_start,
+        checkpoint_path=Path(args.checkpoint_path) if args.checkpoint_path else CHECKPOINT_PATH,
     )
     print(f"[TrainAdapter] Done. Best held-out accuracy: {result['best_accuracy']:.3f}  "
           f"steps completed: {result['steps_completed']}/{args.num_steps}  "
