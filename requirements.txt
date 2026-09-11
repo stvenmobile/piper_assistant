@@ -9,3 +9,13 @@ scikit-learn>=1.3.0
 scipy>=1.10.0
 pydantic>=2.0.0
 rich>=13.0.0
+
+# torch/transformers were already required by src/piper_geometry's
+# ResidualExtractor but were never added here (installed by hand on the
+# Jetson) - listed now since src/piper_memory depends on them too.
+# sentence-transformers is new: a dedicated small embedding model for
+# piper_memory's retrieval, compared in parallel against reusing Qwen's
+# own hidden states via ResidualExtractor.
+torch>=2.0.0
+transformers>=4.40.0
+sentence-transformers>=3.0.0
