@@ -29,6 +29,30 @@ import torch
 from peft import LoraConfig, TaskType, get_peft_model
 
 
+def _average_facts_loss(peft_model, tokenizer, device, study_facts: List[str]) -> float:
+    """Average causal-LM loss across every study fact, under no_grad - a
+    diagnostic eval, not a training step. Used for progress reporting so
+    the printed curve reflects overall progress across the whole study
+    set, not just whichever single fact rng.choice happened to sample
+    that step - a real run showed exactly why that distinction matters:
+    the per-step-only printout bounced between 0.27 and 3.5 across 200
+    steps, which looked like training instability but was actually just
+    reporting granularity - different facts sit at different loss values
+    at any given moment, so which one gets sampled dominates the printed
+    number far more than overall progress does."""
+    was_training = peft_model.training
+    peft_model.eval()
+    total = 0.0
+    with torch.no_grad():
+        for fact in study_facts:
+            ids = tokenizer(fact, return_tensors="pt", add_special_tokens=False).input_ids.to(device)
+            outputs = peft_model(input_ids=ids, attention_mask=torch.ones_like(ids), labels=ids)
+            total += outputs.loss.item()
+    if was_training:
+        peft_model.train()
+    return total / len(study_facts)
+
+
 def finetune_lora(model, tokenizer, device, study_facts: List[str],
                    num_steps: int = 200, learning_rate: float = 1e-4,
                    r: int = 8, seed: int = 1234, verbose: bool = True):
@@ -77,7 +101,9 @@ def finetune_lora(model, tokenizer, device, study_facts: List[str],
         last_loss = loss.item()
 
         if verbose and (step % max(1, num_steps // 10) == 0 or step == num_steps):
-            print(f"[LoRA] step {step}/{num_steps}  loss={last_loss:.4f}"
+            avg_loss = _average_facts_loss(peft_model, tokenizer, device, study_facts)
+            print(f"[LoRA] step {step}/{num_steps}  last_step_loss={last_loss:.4f}  "
+                  f"avg_loss_all_facts={avg_loss:.4f}"
                   + (f"  ({skipped_steps} skipped so far)" if skipped_steps else ""))
 
     peft_model.eval()

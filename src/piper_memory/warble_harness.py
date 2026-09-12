@@ -38,6 +38,7 @@ from piper_memory.memory_store import MemoryStore
 from piper_memory.fictional_entities import load_fictional_entities, get_study_facts, get_recall_probes
 from piper_memory.embeddings import SmallModelEmbedder, populate_item
 from piper_memory.loss_measurement import evaluate_recall_probes
+from piper_memory.lora_finetune import finetune_lora
 
 
 def with_context_probes(probes: list, context_text: str) -> list:
@@ -101,6 +102,66 @@ def run_sanity_check(model_name: str = "Qwen/Qwen2.5-0.5B-Instruct", device: str
         "warble_loss_before": warble_loss_before, "warble_loss_after": warble_loss_after,
         "quaddle_loss_before": quaddle_loss_before, "quaddle_loss_after": quaddle_loss_after,
         "warble_learning_progress": progress,
+    }
+
+
+def run_lora_check(model_name: str = "Qwen/Qwen2.5-0.5B-Instruct", device: str = "cpu",
+                    num_steps: int = 200, learning_rate: float = 1e-4) -> dict:
+    """The genuine learning test, unlike run_sanity_check above: both
+    before and after measurements are COLD - no warble content anywhere
+    in the prompt at measurement time, either before or after fine-tuning.
+    Any improvement can only come from the LoRA adapter's own weights,
+    not from generic context-priming (the confound the in-context version
+    demonstrated with real numbers - see
+    obsidian/Journals/2026-09-11.md).
+
+    Quaddle probes stay completely cold too, with NO context prepended at
+    all here (unlike run_sanity_check's warble-context-on-quaddle-probes
+    check) - the LoRA adapter was never trained on anything resembling
+    quaddle content, so there's no context to even construct; the
+    question is simply whether fine-tuning on warbles alone leaked into
+    quaddle predictions through the adapter's own weights."""
+    print(f"[LoRA Check] Loading {model_name}...")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    base_model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+    base_model.eval()
+
+    entities = load_fictional_entities()
+    warble_facts = get_study_facts(entities, "warbles")
+    warble_probes = get_recall_probes(entities, "warbles")
+    quaddle_probes = get_recall_probes(entities, "quaddles")  # control - facts NEVER touched
+
+    print("[LoRA Check] Measuring COLD baseline loss (before LoRA) on warbles and quaddles...")
+    warble_loss_before, warble_acc_before = evaluate_recall_probes(base_model, tokenizer, device, warble_probes)
+    quaddle_loss_before, quaddle_acc_before = evaluate_recall_probes(base_model, tokenizer, device, quaddle_probes)
+
+    print(f"[LoRA Check] Fine-tuning LoRA adapter on {len(warble_facts)} warble facts, {num_steps} steps...")
+    tuned_model = finetune_lora(
+        base_model, tokenizer, device, warble_facts, num_steps=num_steps, learning_rate=learning_rate,
+    )
+
+    print("[LoRA Check] Measuring COLD loss AFTER LoRA fine-tuning (no warble content in the prompt)...")
+    warble_loss_after, warble_acc_after = evaluate_recall_probes(tuned_model, tokenizer, device, warble_probes)
+    quaddle_loss_after, quaddle_acc_after = evaluate_recall_probes(tuned_model, tokenizer, device, quaddle_probes)
+
+    warble_progress = warble_loss_before - warble_loss_after
+    quaddle_progress = quaddle_loss_before - quaddle_loss_after
+
+    print(f"\n[LoRA Check] warbles   loss: {warble_loss_before:.4f} -> {warble_loss_after:.4f}  "
+          f"(delta {warble_progress:+.4f})   accuracy: {warble_acc_before:.3f} -> {warble_acc_after:.3f}")
+    print(f"[LoRA Check] quaddles  loss: {quaddle_loss_before:.4f} -> {quaddle_loss_after:.4f}  "
+          f"(delta {quaddle_progress:+.4f})   accuracy: {quaddle_acc_before:.3f} -> {quaddle_acc_after:.3f}")
+
+    if quaddle_progress > 0:
+        leak_fraction = quaddle_progress / warble_progress if warble_progress else float("inf")
+        print(f"\n[LoRA Check] Quaddle-to-warble improvement ratio: {leak_fraction:.3f} "
+              f"(in-context sanity check's confound was ~0.436 - lower here means LoRA is more "
+              f"fact-specific, not just repeating the same leak in a different form)")
+
+    return {
+        "warble_loss_before": warble_loss_before, "warble_loss_after": warble_loss_after,
+        "quaddle_loss_before": quaddle_loss_before, "quaddle_loss_after": quaddle_loss_after,
+        "warble_learning_progress": warble_progress, "quaddle_learning_progress": quaddle_progress,
     }
 
 
