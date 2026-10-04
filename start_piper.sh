@@ -26,7 +26,6 @@ if command -v pactl &> /dev/null; then
     SINK="$(pactl list short sinks 2>/dev/null | grep -i -- "${HINT}" | head -1 | cut -f2 || true)"
     if [[ -n "${HINT}" && -n "${SINK}" ]]; then
         pactl set-sink-mute "${SINK}" 0 || true
-        pactl set-sink-volume "${SINK}" 100% || true
         echo "[Audio] Unmuted ${SINK}"
     else
         echo "[Audio] No PulseAudio sink matches '${HINT}' - leaving audio settings alone"

@@ -37,7 +37,8 @@ DEFAULTS: dict = {
         "mic_device_hint": "usb",
         "speaker_device_hint": "usb",
         "mic_channel": 0,                 # which input channel to listen to on a multi-channel mic
-                                          #   (SP-200: channel 0 should be the echo-cancelled voice)
+                                          #   (SP-200, measured: 0 = echo-cancelled voice, 1-4 raw
+                                          #   mics, 5 = what the speaker is playing)
         "hardware_rate": 48000,
         "whisper_rate": 16000,
         "whisper_model": "base.en",

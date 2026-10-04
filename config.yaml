@@ -14,7 +14,7 @@ audio:
   # For the SP-200 speakerphone (mic and speaker in one), set both hints to its name.
   mic_device_hint: "sp200"
   speaker_device_hint: "sp200"
-  mic_channel: 0       # SP-200 input channel with the echo-cancelled voice - check with tools/audio/mic_channels.py
+  mic_channel: 0       # SP-200: 0 = echo-cancelled voice (1-4 raw mics, 5 speaker reference) - tools/audio/mic_channels.py
   hardware_rate: 48000
   whisper_rate: 16000
   whisper_model: "base.en"
@@ -25,7 +25,8 @@ audio:
   # Voice synthesis configuration (Piper engine)
   voice_model: "en_US-hfc_female-medium.onnx"
 
-  volume: 0.55
+  volume: 0.3          # Piper's voice level (0..1). Audio goes straight to the SP-200, so this is
+                       #   the volume control: ~0.2 quiet, ~0.5 loud
   length_scale: 0.95   # Speech rate: values < 1.0 produce slightly faster, more natural cadence
   noise_scale: 0.667   # Phoneme pitch/inflection variation
   noise_w: 0.8         # Phoneme duration variability

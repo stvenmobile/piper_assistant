@@ -48,7 +48,7 @@ show("Room noise", quiet)
 
 print("\n2/3  Test tone through the speaker - stay quiet...")
 t = np.arange(int(RATE * 3)) / RATE
-tone = (0.3 * 32767 * np.sin(2 * np.pi * 440 * t)).astype(np.int16)
+tone = (0.08 * 32767 * np.sin(2 * np.pi * 440 * t)).astype(np.int16)   # moderate level
 toned = record(3, tone)
 show("While the speaker plays a tone (the echo-cancelled channel should be LOW here)", toned)
 
