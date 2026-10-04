@@ -14,16 +14,13 @@ import sounddevice as sd
 from scipy.signal import resample
 from kokoro import KPipeline
 
+from _devices import speaker
+
 HARDWARE_SAMPLE_RATE = 48000
 KOKORO_SAMPLE_RATE = 24000
 
-# Resolve USB Speaker (hw:0,0)
-devices = sd.query_devices()
-output_device = next(
-    (i for i, d in enumerate(devices) if ("usb2.0" in d["name"].lower() or "hw:0,0" in d["name"].lower()) and d["max_output_channels"] > 0),
-    None
-)
-print(f"[Audio] Target output device index: {output_device}")
+# Speaker from config.yaml's audio.speaker_device_hint
+output_device = speaker()
 
 print("[Kokoro] Loading KPipeline model into Jetson Orin GPU memory...")
 pipeline = KPipeline(lang_code="a", device="cuda")

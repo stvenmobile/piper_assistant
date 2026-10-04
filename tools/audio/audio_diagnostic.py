@@ -14,17 +14,20 @@ import sounddevice as sd
 from scipy.signal import resample
 from faster_whisper import WhisperModel
 
+from _devices import mic, speaker
+
 HARDWARE_RATE = 48000
 WHISPER_RATE = 16000
 
-MIC_INDEX = 1      # USB PnP Sound Device (hw:1,0)
-SPEAKER_INDEX = 0  # USB2.0 Device (hw:0,0)
+# From config.yaml's audio.mic_device_hint / speaker_device_hint (the SP-200 is both)
+MIC_INDEX = mic()
+SPEAKER_INDEX = speaker()
 
 def calculate_rms(chunk: np.ndarray) -> float:
     return float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
 
 def calibrate_ambient(duration: float = 2.0) -> float:
-    print("\n[Step 1/3] Calibrating ambient noise on Mic [1] (remain silent)...")
+    print(f"\n[Step 1/3] Calibrating ambient noise on Mic [{MIC_INDEX}] (remain silent)...")
     chunk_samples = int(HARDWARE_RATE * 0.1)
     samples_to_read = int(duration / 0.1)
     rms_values = []
@@ -129,7 +132,7 @@ def main():
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-    print("[Playback] Playing back raw audio over Speaker [0]...")
+    print(f"[Playback] Playing back raw audio over Speaker [{SPEAKER_INDEX}]...")
     norm_audio = raw_audio_48k.astype(np.float32)
     peak = np.max(np.abs(norm_audio))
     if peak > 0:

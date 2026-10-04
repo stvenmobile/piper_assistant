@@ -53,3 +53,8 @@ __pycache__/
 src/piper_audio/models/*.onnx
 src/piper_audio/models/*.onnx.json
 kokoro_models/
+
+# Research artefacts (checkpoints, experiment logs, Obsidian vault) - kept on the research
+# branches / in curious-george; main is the runtime
+data/
+obsidian/

@@ -107,6 +107,8 @@ piper_assistant/
 │   ├── piper_geometry/      research: residual-stream extraction (continues in curious-george)
 │   └── piper_tools/         research: Obsidian vault and reading-dashboard builders
 ├── tests/                   unit tests (pytest)
+├── tools/audio/             hand-run hardware checks: audio diagnostic, voice auditions,
+│                            Kokoro benchmark (see tools/audio/README.md)
 └── requirements.txt, requirements-dev.txt, pyproject.toml
 ```
 

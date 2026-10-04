@@ -10,13 +10,14 @@ import sounddevice as sd
 from scipy.signal import resample
 from piper import PiperVoice
 
-MODELS_DIR = Path(__file__).resolve().parent / "src" / "piper_audio" / "models"
+from _devices import speaker
+
+MODELS_DIR = Path(__file__).resolve().parents[2] / "src" / "piper_audio" / "models"
 SAMPLE_TEXT = "Piper assistant is online and evaluating local neural voice quality."
 TARGET_RATE = 48000
 
-# Resolve output device (matches hw:0,0 USB DAC)
-devices = sd.query_devices()
-output_device = next((i for i, d in enumerate(devices) if "usb2.0" in d["name"].lower() and d["max_output_channels"] > 0), None)
+# Speaker from config.yaml's audio.speaker_device_hint
+output_device = speaker()
 
 for model_file in sorted(MODELS_DIR.glob("*.onnx")):
     config_file = model_file.with_suffix(".onnx.json")
