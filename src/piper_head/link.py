@@ -80,6 +80,7 @@ class Service:
         self.cfg = cfg
         self.core = HeadLink()
         self.lock = threading.Lock()
+        self.write_lock = threading.Lock()    # heartbeats and clients write from different threads
         self.serial = None
         self.clients: list[socket.socket] = []
 
@@ -91,7 +92,8 @@ class Service:
             if ser is None:
                 return
             try:
-                ser.write(protocol.encode(m))
+                with self.write_lock:
+                    ser.write(protocol.encode(m))
             except Exception as e:
                 print(f"[HeadLink] Write failed: {e}")
                 self.drop_serial()
@@ -114,7 +116,13 @@ class Service:
                 time.sleep(2)
                 continue
             try:
-                ser = serial.Serial(port, self.cfg["baud"], timeout=0.2)
+                # DTR on / RTS off BEFORE opening: on the S3's native USB those lines drive
+                # reset/boot, and with the defaults the board stopped accepting writes (bench test)
+                ser = serial.Serial()
+                ser.port, ser.baudrate = port, self.cfg["baud"]
+                ser.timeout, ser.write_timeout = 0.2, 1
+                ser.dtr, ser.rts = True, False
+                ser.open()
             except Exception as e:
                 print(f"[HeadLink] Can't open {port}: {e}")
                 time.sleep(2)
