@@ -18,9 +18,19 @@ from piper_brain.quick_responder import QuickResponder
 from piper_brain.supervisor import PiperSupervisor, PiperBrainState
 from piper_brain.state import AgentState, create_initial_state, append_and_truncate_message
 from piper_brain.journal import ActivityJournal
+from piper_head.client import HeadClient
 
 ENGAGED_TIMEOUT_SECONDS = float(CONFIG["assistant"]["engaged_timeout_seconds"])
 running = True
+
+
+head = HeadClient()        # the light ring on piper-watch (silently does nothing if it isn't there)
+
+
+def set_status(state: AgentState, status: str, mood: str = "neutral"):
+    """Change the assistant's state and show it on the head's light ring."""
+    state["status"] = status
+    head.assistant_state(status, mood)
 
 
 def make_speaker():
@@ -57,6 +67,7 @@ def main():
     journal = ActivityJournal()
     
     state: AgentState = create_initial_state()
+    set_status(state, "IDLE")
 
     journal.log("SYSTEM", "Piper assistant runtime initialized.", f"Inactivity timeout: {ENGAGED_TIMEOUT_SECONDS:g}s | Memory window: {CONFIG['assistant']['max_conversation_turns']} turns | TTS: {CONFIG['audio']['tts_engine']}")
 
@@ -72,7 +83,7 @@ def main():
             if state["status"] == "ENGAGED" and (now - state["last_interaction_time"] > ENGAGED_TIMEOUT_SECONDS):
                 print(f"\n[State Transition] ENGAGED -> IDLE ({ENGAGED_TIMEOUT_SECONDS}s inactivity reached)")
                 journal.log("STATE", "ENGAGED -> IDLE", f"Inactivity window exceeded ({ENGAGED_TIMEOUT_SECONDS}s).")
-                state["status"] = "IDLE"
+                set_status(state, "IDLE")
 
             # 2. State-dependent listening strategy
             if state["status"] == "IDLE":
@@ -83,7 +94,7 @@ def main():
                 print("\n[State Transition] IDLE -> ENGAGED (Wake word detected)")
                 journal.log("STATE", "IDLE -> ENGAGED", f"Wake-word triggered with: '{raw_text}'")
                 speaker.play_chime()
-                state["status"] = "ENGAGED"
+                set_status(state, "ENGAGED")
                 state["last_interaction_time"] = time.time()
 
                 # Strip wake phrase to isolate actual command if spoken together
@@ -110,12 +121,12 @@ def main():
                 print(f"[Piper (Local)]: {quick_reply}")
                 journal.log("INTENT_LOCAL", f"Matched '{user_text}'", f"Replied: '{quick_reply}'")
                 
-                state["status"] = "SPEAKING"
+                set_status(state, "SPEAKING")
                 speaker.speak(quick_reply)
                 append_and_truncate_message(state, AIMessage(content=quick_reply))
                 
                 if any(k in user_text.lower() for k in ["goodbye", "bye", "see you"]):
-                    state["status"] = "IDLE"
+                    set_status(state, "IDLE")
                     journal.log("STATE", "ENGAGED -> IDLE", "User issued dismissal.")
                     print("[State Transition] ENGAGED -> IDLE (Dismissed)")
                 elif any(k in user_text.lower() for k in ["shut down", "exit"]):
@@ -123,12 +134,12 @@ def main():
                     running = False
                     break
                 else:
-                    state["status"] = "ENGAGED"
+                    set_status(state, "ENGAGED")
                     state["last_interaction_time"] = time.time()
                 continue
 
             # 4. LangGraph Supervisor (Remote Ollama)
-            state["status"] = "PROCESSING"
+            set_status(state, "PROCESSING")
             print(f"[Piper (Supervisor Processing)]: Escalating '{user_text}'...")
             journal.log("INTENT_LLM", f"Escalated prompt to Ollama: '{user_text}'")
 
@@ -146,14 +157,18 @@ def main():
             result = supervisor.process(brain_state)
             reply_text = result.get("output_text") or "I processed your request."
             state["messages"] = result.get("messages", state["messages"])
+            llm_failed = bool(result.get("error"))
 
             print(f"[Piper (LLM Reply)]: {reply_text}")
             journal.log("REPLY_LLM", f"Generated: '{reply_text}'")
 
-            state["status"] = "SPEAKING"
+            if llm_failed:                                  # e.g. Ollama unreachable
+                head.face("error", "concerned")
+                time.sleep(1.0)
+            set_status(state, "SPEAKING", "concerned" if llm_failed else "neutral")
             speaker.speak(reply_text)
 
-            state["status"] = "ENGAGED"
+            set_status(state, "ENGAGED")
             state["last_interaction_time"] = time.time()
 
         except KeyboardInterrupt:

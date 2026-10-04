@@ -37,6 +37,15 @@ export ORT_LOGGING_LEVEL="3"
 export TOKENIZERS_PARALLELISM="false"
 export PYTHONUNBUFFERED="1"
 
-# 4. Run (Ctrl+C, or type q + Enter, to stop)
+# 4. The head link (piper-watch's ESP32) in the background; stopped when Piper exits
 cd "${PROJECT_ROOT}"
-exec python3 src/main.py "$@"
+HEAD_ENABLED="$(python3 -c 'import sys; sys.path.insert(0, "src"); from piper_brain.config import CONFIG; print(CONFIG["head"]["enabled"])' 2>/dev/null || echo False)"
+if [[ "${HEAD_ENABLED}" == "True" ]]; then
+    python3 src/piper_head/link.py &
+    HEAD_PID=$!
+    trap 'kill ${HEAD_PID} 2>/dev/null || true' EXIT
+    echo "[Head] Link service started (pid ${HEAD_PID})"
+fi
+
+# 5. Run (Ctrl+C, or type q + Enter, to stop)
+python3 src/main.py "$@"

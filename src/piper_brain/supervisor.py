@@ -39,6 +39,7 @@ class PiperBrainState(TypedDict):
     messages: List[BaseMessage]
     introspection_topic: Optional[str]
     introspection_result: Optional[str]
+    error: bool                     # set when the LLM couldn't be reached (the ring shows it)
 
 
 def load_system_prompt() -> str:
@@ -144,6 +145,7 @@ class PiperSupervisor:
         except Exception as e:
             print(f"[Supervisor Error]: LLM invocation failed: {e}")
             state["output_text"] = "I am having trouble communicating with my neural core."
+            state["error"] = True
 
         state["messages"] = state["messages"][-max_turns:]
         return state

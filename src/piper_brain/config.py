@@ -48,7 +48,15 @@ DEFAULTS: dict = {
         "voice_model": "en_US-amy-medium.onnx",
         "volume": 0.45,
     },
-    "weather": {
+    "head": {                             # piper-watch: the head link service and its clients
+        "enabled": True,
+        "serial_port": "auto",            # "auto" = the first Espressif USB device, else e.g. /dev/ttyACM0
+        "baud": 115200,
+        "host": "127.0.0.1",
+        "port": 8770,
+        "heartbeat_s": 0.5,               # the ESP32 shows "offline" after 3 s without one
+    },
+        "weather": {
         "location": "Matthews,NC",
         "cache_minutes": 10,
     },
