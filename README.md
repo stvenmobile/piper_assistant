@@ -1,146 +1,321 @@
-# Piper Assistant: Autonomous Cognitive & Geometric Explorer
+# Piper Assistant
 
-**Piper Assistant** is an agentic, self-reflecting edge AI system running locally on an **NVIDIA Jetson Orin NX (16GB)**. The project focuses on studying the **geometric structure of reasoning**�extracting and mapping residual activation trajectories, manifold topology, and emergent conceptual links within localized neural networks.
+**Piper** is a local voice assistant running on an **NVIDIA Jetson Orin NX (16 GB)**: it listens
+for its name, answers simple questions instantly on the device, hands everything else to a
+language model on the local network, and speaks the reply with a natural neural voice. No cloud
+services are involved apart from a weather lookup.
 
-Instead of heavy external camera/servo loops, Piper explores her own latent space during idle cycles and interacts with collaborators via conversational memory and an ultra-low-latency voice I/O pipeline.
+This repository is Piper's **runtime** - the program that runs on the Jetson. It is being
+extended to give Piper a body: **[piper-watch](https://github.com/stvenmobile/piper-watch)**, a
+small robot head with a camera and a glowing light ring, so Piper can **see** who is there,
+**turn to look** at them, **recognise** people it knows, and **show** what it is doing and how
+it "feels" (section 6).
 
----
-
-## 1. Core Architectural Pillars
-
-* **Autonomous Introspection Engine:** During idle periods, Piper performs curiosity-driven exploratory reasoning across disparate knowledge domains, tracking trajectory curvature and latent clustering across transformer layers.
-* **Dynamic Geometry & Knowledge Graphing:** Discovered semantic bridges and topological invariants are compiled directly into an interactive, multi-dimensional Obsidian vault.
-* **Two-Tier Speech Architecture:** Flexible, hardware-aware TTS routing supporting high-prosody GPU neural diffusion and lightweight CPU-bound inference.
-* **Sub-20ms Deterministic Intent Bypass:** Fast-path pattern evaluation intercepting routine status queries (date, time, environment) before hitting the LLM reasoning core.
-* **Conversational Interlocutor Memory:** Persistent markdown user profiles (`profiles/{user}.md`) dynamically loaded into context upon speaker identification.
-
----
-
-## 2. Hardware & Runtime Environment
-
-* **Host Platform:** NVIDIA Jetson Orin NX Engineering Reference DevKit (16GB Unified RAM)
-* **OS / Environment:** Ubuntu 22.04 LTS (JetPack 6.1 / L4T 36.4.0, Headless)
-* **Compute Acceleration:** CUDA 12.6, cuDNN 9.3, PyTorch 2.x, TensorRT 10.3
-* **Audio Routing:** PipeWire USB I/O (Microphone In / DAC Speaker Out @ 48kHz)
-* **Remote Reasoning Core:** Ollama server on local LAN (`llama3.2:3b`)
+Piper's research side - curiosity, choosing what to study and checking whether studying worked -
+continues in **[curious-george](https://github.com/stvenmobile/curious-george)**, which will later
+connect to this runtime (section 9).
 
 ---
 
-## 3. Speech Synthesis Engines (Dual-Tier)
+## 1. Status
 
-Piper includes two swappable TTS engines selectable in `config.yaml` (`audio.tts_engine`):
-
-| Feature / Engine | Kokoro-82M (`kokoro`) | Piper TTS (`piper`) |
-| :--- | :--- | :--- |
-| **Compute Target** | **GPU (CUDA)** | **CPU (int8/fp32)** |
-| **Hardware Requirement** | NVIDIA Jetson / Discrete CUDA GPU | Low-power CPU / Single-Board Computer |
-| **Prosody & Realism** | Human-grade prosody, natural breathing/inflection | Clean, robotic-to-natural acoustic models |
-| **Default Voice** | `af_heart` (American Female) / `am_adam` | `en_US-ryan-high` / `en_US-amy-medium` |
-| **Sample Rate** | 24,000 Hz (Resampled to 48 kHz hardware target) | 22,050 Hz (Resampled to 48 kHz hardware target) |
-| **VRAM Footprint** | ~330 MB unified memory | < 60 MB system RAM |
-
----
-
-## 4. Deterministic Local Bypass (Zero-LLM Latency)
-
-To minimize network and token generation overhead, incoming utterances are evaluated against a fast-path regex intent matcher (`src/piper_brain/quick_responder.py`). Queries matching deterministic domains return in under 20ms without invoking Ollama:
-
-* **Temporal Ground Truth:** Real-time date, day of week, and local time.
-* **Local Environmental Conditions:** Real-time weather, temperature, humidity, and wind for Matthews, NC via `wttr.in` REST endpoint.
-* **Assistant State & Status:** Immediate readiness checks, wake confirmations, and session terminations.
+| Part | Status |
+|---|---|
+| Voice loop: wake word, speech-to-text, quick local answers, LLM replies, speech | **Working** |
+| Two speech engines (Kokoro on the GPU, Piper on the CPU), chosen in `config.yaml` | **Working** |
+| Per-person profiles loaded into the conversation | Working (person found by "my name is ...") |
+| Unit tests (config, quick responder, weather cache, state, audio devices) | **Working** - `pytest` |
+| SP-200 speakerphone (microphone + speaker with echo cancellation) | Next: set the device names |
+| piper-watch head: light ring states, head link | Planned - roadmap phase 1 |
+| Pan motor and face tracking | Planned - phases 2-3 |
+| Face recognition (who is there) replacing "my name is ..." | Planned - phase 3 |
+| curious-george connection (idle-time curiosity) | Planned - phase 5 |
 
 ---
 
-## 5. Package Layout
+## 2. Hardware
+
+| Part | Role |
+|---|---|
+| **NVIDIA Jetson Orin NX 16 GB** in a Seeed **reComputer J4012** | runs everything here (Ubuntu 22.04, JetPack 6.1, CUDA 12.6) |
+| **SP-200 USB speakerphone** (4-mic array, hardware echo cancellation) | microphone and speaker; sits on the desk wherever is convenient. Until it is configured, a USB microphone and a USB speaker are used. |
+| **Ollama** server on the local network (`llama3.2:3b`) | the language model for anything the quick responder can't answer |
+| **piper-watch** (planned) | the robot head: camera, light ring, pan motor - sits on top of the reComputer |
+
+---
+
+## 3. How a conversation works
+
+```text
+ microphone ─► listener ─► wake word? ─► quick responder ──(match)──────────────► speech
+               (energy                     (time, date,                               ▲
+                detection +                 weather, hello,                           │
+                Whisper)                    goodbye, status)                          │
+                                               │ no match                             │
+                                               ▼                                      │
+                                     supervisor (LangGraph) ─► Ollama on the LAN ─────┘
+                                     + persona (system_dna.md)
+                                     + person's profile (profiles/<name>.md)
+                                     + date, time, cached weather
+```
+
+- **Listener** (`piper_audio/listener.py`): measures the room's noise at start-up, records
+  whenever the sound level rises above it, and transcribes with **faster-whisper** (`base.en`,
+  CPU, int8). While idle, only utterances containing "Piper" (or Whisper's favourite mishearing,
+  "paper") wake it.
+- **Quick responder** (`piper_brain/quick_responder.py`): answers the date, time, weather,
+  greetings, goodbyes and status checks in milliseconds, without the language model. "Goodbye,
+  Piper" ends the conversation; "shut down" stops the program.
+- **Supervisor** (`piper_brain/supervisor.py`): a LangGraph flow that adds Piper's persona, the
+  current person's profile, the date and the (cached) weather, keeps the last 8 messages of the
+  conversation, and asks Ollama for a short spoken reply.
+- **Speech** (`piper_audio/`): one of two engines, chosen with `audio.tts_engine`:
+
+| | Kokoro-82M (`kokoro`) | Piper TTS (`piper`) |
+|---|---|---|
+| Runs on | GPU (CUDA) | CPU |
+| Sound | very natural, human-like prosody | clean, slightly synthetic |
+| Default voice | `af_heart` | `en_US-hfc_female-medium` |
+| Memory | ~330 MB | < 60 MB |
+
+### States
+
+`src/main.py` moves through four states. They will drive the light ring (section 6.3).
+
+```text
+            "Hey Piper" (+ chime)                 request
+  IDLE ─────────────────────────► ENGAGED ────────────────► PROCESSING ──► SPEAKING
+   ▲                                 ▲  │                                      │
+   │  20 s of silence, or "goodbye"  │  └──────────── follow-up turn ◄─────────┘
+   └─────────────────────────────────┘
+```
+
+---
+
+## 4. Repository layout
 
 ```text
 piper_assistant/
-+-- system_dna.md                  # Core identity, epistemic drives & voice constraints
-+-- config.yaml                    # Hardware bindings, voice selection, & model endpoints
-+-- task_requests.md               # Collaborator inbox/outbox for tasks and queries
-+-- daily_journal.md               # Log of latent discoveries & completed tasks
-+-- profiles/                      # Persistent markdown context files per user (e.g. steve.md)
-+-- src/
-�   +-- main.py                    # Master event loop and state machine coordinator
-�   +-- piper_brain/               # LangGraph supervisor, fast responder, and tool callers
-�   �   +-- supervisor.py          # StateGraph routing (ALONE vs. ENGAGED)
-�   �   +-- quick_responder.py     # Deterministic regex query matcher
-�   �   +-- tools.py               # Environmental ground truth & weather integrations
-�   +-- piper_audio/               # Audio subsystem
-�   �   +-- listener.py            # faster-whisper continuous STT with dynamic VAD
-�   �   +-- speaker.py             # Piper-TTS CPU fallback engine
-�   �   +-- kokoro_speaker.py      # Kokoro-82M CUDA GPU acceleration engine
-�   �   +-- models/                # Local ONNX voice weights
-�   +-- piper_geometry/            # PyTorch residual stream hooks & manifold metrics
-�   +-- piper_tools/               # Obsidian vault compiler mapping latent reasoning graphs
-+-- .venv/
+├── config.yaml              settings (every one has a default in piper_brain/config.py)
+├── system_dna.md            Piper's persona and voice rules
+├── profiles/                one markdown profile per person (e.g. steve.md)
+├── daily_journal.md         activity log written by the runtime
+├── src/
+│   ├── main.py              the runtime: state machine and conversation loop
+│   ├── piper_audio/         listener (Whisper), Kokoro and Piper speakers, devices.py
+│   ├── piper_brain/         config, supervisor, quick responder, tools, state, journal
+│   ├── piper_geometry/      research: residual-stream extraction (continues in curious-george)
+│   └── piper_tools/         research: Obsidian vault and reading-dashboard builders
+├── tests/                   unit tests (pytest)
+└── requirements.txt, requirements-dev.txt, pyproject.toml
 ```
 
-## 6. Operational State Machine
-```text
+Planned packages for piper-watch: `src/piper_head/` (head link client and service) and
+`src/piper_vision/` (vision service) - see section 6.
 
+---
 
-                  +-------------------------------+
-                  �   Awaiting Audio / Requests   �
-                  +-------------------------------+
-                                  �
-                    +---------------------------+
-                    ?                           ?
-             +--------------+            +--------------+
-             �  STATE: IDLE �            �STATE: ENGAGED�
-             �(Introspection�            � (Collaborator�
-             � & Geometry)  �            �  Execution)  �
-             +--------------+            +--------------+
-```
+## 5. Setup and running
 
-* STATE: IDLE (Introspective Researcher): When no user is active, Piper computes residual activation trajectories, measures curvature across transformer layers, and logs topological mappings to the vault.
+### 5.1 Environment
 
-* STATE: ENGAGED (Collaborator): When triggered by speech or directives, Piper identifies the interlocutor, loads their profile context, handles local intents or escalates to Ollama, and delivers voice synthesis.
-
-## 7. Setup & Execution
-### 7.1 Virtual Environment Activation
-
-```Bash
+```bash
 cd ~/piper_assistant
 source .venv/bin/activate
+pip install -r requirements.txt     # torch / kokoro use the Jetson's CUDA builds
 ```
 
-### 7.2 Configuration
+### 5.2 Configuration
 
-Adjust parameters in config.yaml:
+Everything has a default in `src/piper_brain/config.py`; `config.yaml` only needs what differs.
+The environment variables `PIPER_OLLAMA_URL`, `PIPER_LLM_MODEL` and `PIPER_VOICE_MODEL` override
+the file.
 
-```YAML
+```yaml
+assistant:
+  engaged_timeout_seconds: 20.0     # back to IDLE after this much silence
+  max_conversation_turns: 8         # messages kept in the conversation
+llm:
+  base_url: "http://192.168.1.150:11434"
+  model: "llama3.2:3b"
 audio:
-  tts_engine: "kokoro"       # Options: "kokoro" (GPU) or "piper" (CPU)
-  kokoro_voice: "af_heart"   # af_heart, af_bella, am_adam, am_michael
-  voice_model: "en_US-ryan-high.onnx"
-  volume: 0.45
+  mic_device_hint: "pnp"            # any unique part of the device name (see 5.3)
+  speaker_device_hint: "usb2.0"
+  tts_engine: "kokoro"              # "kokoro" (GPU) or "piper" (CPU)
+  kokoro_voice: "af_heart"          # af_heart, af_bella, am_adam, am_michael
+weather:
+  location: "Matthews,NC"
+  cache_minutes: 10
 ```
 
-### 7.3 Running the Assistant
-```Bash
-python3 src/main.py
-(Press q + Enter in the terminal to stop cleanly).
-
-### 7.4 Choosing the microphone and speaker (SP-200)
+### 5.3 Choosing the microphone and speaker (SP-200)
 
 List the audio devices the Jetson sees, then put any unique part of the speakerphone's name in
-both `audio.mic_device_hint` and `audio.speaker_device_hint` in `config.yaml` (the SP-200 is
-the microphone and the speaker in one, with hardware echo cancellation):
+both `audio.mic_device_hint` and `audio.speaker_device_hint` (the SP-200 is the microphone and
+the speaker in one):
 
-```Bash
+```bash
 python3 src/piper_audio/devices.py
 ```
 
-### 7.5 Tests
+### 5.4 Running
 
-Unit tests cover the config loader, the quick responder, the weather cache, conversation state
-and audio-device matching. They need no audio hardware, GPU or models:
+```bash
+python3 src/main.py
+```
 
-```Bash
+Type `q` and Enter to stop cleanly, or say "shut down".
+
+### 5.5 Tests
+
+The unit tests need no audio hardware, GPU or models, so they run on any machine:
+
+```bash
 pip install -r requirements-dev.txt
 python3 -m pytest
 ```
-```
 
 ---
+
+## 6. Integration with piper-watch (planned)
+
+**piper-watch** is Piper's head. It sits on top of the reComputer and turns left and right (about
+±100°) on a lazy-Susan bearing, driven by a stepper motor and belt. Its round face has the
+**camera lens** in the middle, framed by a **24-LED light ring** behind a diffuser. An **ESP32-S3**
+in the base drives the motor and the ring; the camera, the ESP32 and the SP-200 all plug into
+the Jetson's USB ports. There are deliberately no eyes or mouth: the ring is the face, and
+Piper's voice comes from the speakerphone.
+
+The head adds two things to Piper: **seeing** (the camera) and **showing** (the light ring and
+where the head points).
+
+### 6.1 Architecture
+
+Face tracking has to run continuously - the head keeps following you while Piper listens,
+thinks and speaks - so it can't live inside the conversation loop, which waits on each step.
+The work is split into three processes on the Jetson that talk over local sockets:
+
+```text
+                         ┌────────────────────────── Jetson ───────────────────────────┐
+  C920X camera ─USB─►    │  VISION SERVICE (piper_vision)                              │
+                         │   capture → face detection → tracking → recognition         │
+                         │      │ LOOK (pan target)            │ presence events       │
+                         │      ▼                              ▼                       │
+                         │  HEAD LINK (piper_head)        ASSISTANT (src/main.py)      │
+  ESP32-S3 ◄─USB serial─ │   owns the ESP32's port   ◄──── FACE (state, mood,          │
+  (motor + light ring)   │   heartbeat, reconnects          attention)                 │
+                         │                                                             │
+  SP-200 ◄──────USB──────│  ◄── microphone / speaker ──►  ASSISTANT                    │
+                         └─────────────────────────────────────────────────────────────┘
+```
+
+- **Head link** - a small service that is the only program talking to the ESP32. It forwards
+  pan targets from vision and face states from the assistant, sends a heartbeat (the ESP32 stops
+  the motor and dims the ring if the Jetson goes quiet), and reports the head's position back.
+- **Vision service** - owns the camera, runs face detection and recognition on the GPU
+  (TensorRT), steers the head, and tells the assistant who is present.
+- **Assistant** (this program) - unchanged in structure; it reports its state to the head link
+  and asks vision who is there.
+
+Each part can be restarted or tested on its own: the light ring can be developed with just the
+ESP32 on the bench, and vision without the motor.
+
+### 6.2 Visual input: what seeing adds
+
+| Today | With piper-watch |
+|---|---|
+| The person is identified only if they say "my name is ..." | Piper **recognises faces** and loads that person's profile automatically, so it can greet people by name and remember context per person |
+| Piper doesn't know anyone is there until it hears its name | Piper **notices someone arriving** and turns to look; it can offer a greeting, or simply show attention on the ring |
+| A conversation ends after 20 s of silence or "goodbye" | It can also end when the person **walks away**, and stay open while they are still there thinking |
+| No sense of who is speaking when several people are present | The head turns to the face it is attending to, and the ring's attention arc points at them |
+
+Recognition stays on the Jetson: face embeddings are stored locally, enrolment is opt-in
+("Piper, remember me"), and "Piper, forget me" deletes a person.
+
+### 6.3 State display and mood expression
+
+The ring is how Piper shows what it is doing. The basic states map directly onto the
+assistant's existing states:
+
+| Assistant state | Ring | Head |
+|---|---|---|
+| IDLE, nobody around | slow, dim warm glow; "sleeping" ember after a long quiet spell | rest pose, occasional look-around |
+| IDLE, someone present | soft glow with a brighter **attention arc** pointing at them | follows their face |
+| ENGAGED (listening) | the whole ring **breathes** slowly | faces the speaker |
+| PROCESSING (thinking) | a short **comet** runs around the ring | holds |
+| SPEAKING | a gentle **pulse** while the speech plays | faces the listener |
+| Error (e.g. Ollama unreachable) | **amber** flashes | - |
+
+On top of the state, a **mood** colours how it is shown - hue, brightness and tempo - without
+ever turning the ring into a cartoon:
+
+| Mood | How it shows | Where it comes from |
+|---|---|---|
+| **Neutral** | soft warm white | default |
+| **Warm / pleased** | warmer, a little brighter; a welcome swell when a known person arrives | recognising someone; a friendly exchange |
+| **Curious** | slow cool-tinted shimmer | idle-time exploration (curious-george, section 9); an interesting question |
+| **Uncertain** | dimmer, slower breathing | low-confidence speech recognition; "I'm not sure" replies |
+| **Concerned** | amber tint | errors, lost network, the head blocked |
+| **Sleepy** | very dim ember | long inactivity, late at night |
+
+The mood comes from simple, inspectable signals - recognition events, error conditions, time of
+day, idle activity - plus an optional one-word mood tag the language model can add to its reply
+(stripped before the text is spoken). It decays back to neutral on its own.
+
+### 6.4 Messages
+
+The head link and the ESP32 exchange newline-delimited JSON over the ESP32's USB serial port
+(easy to read while debugging). The draft message set, shared with the piper-watch firmware:
+
+| Direction | Message | Example |
+|---|---|---|
+| Jetson → ESP32 | `HEARTBEAT` | `{"t":"HEARTBEAT","seq":812}` |
+| Jetson → ESP32 | `FACE` | `{"t":"FACE","state":"listening","mood":"warm","attention":-20}` |
+| Jetson → ESP32 | `LOOK` | `{"t":"LOOK","pan":-18.5,"speed":60,"mode":"track"}` |
+| Jetson → ESP32 | `CONFIG` | `{"t":"CONFIG","pan_limits":[-100,100],"max_brightness":64}` |
+| ESP32 → Jetson | `STATUS` | `{"t":"STATUS","pan":-17.9,"moving":true,"homed":true}` |
+| ESP32 → Jetson | `EVENT` | `{"t":"EVENT","what":"watchdog"}` |
+
+The assistant and vision talk to the head link over a local socket with the same messages, so
+any of them can be driven by hand from a test script.
+
+---
+
+## 7. Roadmap
+
+0. **Clean-up** - *done*: config-driven settings, working TTS-engine choice, weather cache,
+   one config loader, unit tests.
+1. **Head link and light ring** (ESP32 + ring on the bench): message protocol, head link
+   service, ring states from the assistant's state changes. *Milestone: the ring reacts to the
+   conversation.*
+2. **Motion** (printed base, NEMA17 + belt): smooth stepper control, homing, soft limits,
+   watchdog, a manual pan test tool.
+3. **Vision** (camera mounted): detection and tracking steering the head; recognition and
+   enrolment; who-is-present events replacing "my name is ..."; a dashboard page with the camera
+   view. *Milestone: Piper follows you and knows who you are.*
+4. **Conversation quality**: a dedicated wake-word model (openWakeWord), streaming speech
+   (start speaking before the whole reply is generated), talking over Piper using the SP-200's
+   echo cancellation, all services started at boot (systemd).
+5. **Curiosity**: connect curious-george (section 9).
+
+---
+
+## 8. Configuration notes
+
+- `system_dna.md` holds Piper's persona and voice rules; it is read at start-up.
+- `profiles/<name>.md` is loaded into the conversation for that person (file name in lower
+  case, e.g. `steve.md`).
+- `daily_journal.md` records state changes, local answers and LLM replies, grouped by date.
+
+---
+
+## 9. Related projects
+
+- **[piper-watch](https://github.com/stvenmobile/piper-watch)** - the robot head: hardware
+  design, CAD, and the ESP32-S3 firmware (motor, light ring, protocol).
+- **[curious-george](https://github.com/stvenmobile/curious-george)** - research into
+  machine curiosity: choosing what to study and measuring whether studying it taught the model
+  anything. It exposes its tools through an **MCP server**; the plan is for this runtime to use
+  them while Piper is idle (choose a topic, study it, log what was learned), to talk about what
+  it has been curious about, and to show it on the ring ("curious" mood). Where study runs
+  (Jetson, PC GPU or Colab) and how learned adapters reach Ollama are still open.
