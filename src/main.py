@@ -12,7 +12,6 @@ os.environ["ORT_LOGGING_LEVEL"] = "3"
 
 from langchain_core.messages import HumanMessage, AIMessage
 
-from piper_audio.speaker import PiperSpeaker
 from piper_audio.listener import PiperListener
 from piper_brain.config import CONFIG
 from piper_brain.quick_responder import QuickResponder
@@ -20,16 +19,20 @@ from piper_brain.supervisor import PiperSupervisor, PiperBrainState
 from piper_brain.state import AgentState, create_initial_state, append_and_truncate_message
 from piper_brain.journal import ActivityJournal
 
-ENGAGED_TIMEOUT_SECONDS = 20.0
+ENGAGED_TIMEOUT_SECONDS = float(CONFIG["assistant"]["engaged_timeout_seconds"])
 running = True
 
-tts_engine = CONFIG.get("audio", {}).get("tts_engine", "piper").lower()
-if tts_engine == "kokoro":
-    from piper_audio.kokoro_speaker import KokoroSpeaker
-    speaker = KokoroSpeaker()
-else:
+
+def make_speaker():
+    """The TTS engine named by audio.tts_engine: "kokoro" (GPU) or "piper" (CPU).
+    (main() used to build a PiperSpeaker regardless, so Kokoro was never used.)"""
+    engine = CONFIG["audio"]["tts_engine"].lower()
+    if engine == "kokoro":
+        from piper_audio.kokoro_speaker import KokoroSpeaker
+        return KokoroSpeaker()
     from piper_audio.speaker import PiperSpeaker
-    speaker = PiperSpeaker()
+    return PiperSpeaker()
+
 
 def keyboard_monitor(journal: ActivityJournal):
     """Background thread watching for 'q' or 'exit' on stdin."""
@@ -47,7 +50,7 @@ def keyboard_monitor(journal: ActivityJournal):
 def main():
     global running
     print("--- Starting Piper Assistant ---")
-    speaker = PiperSpeaker()
+    speaker = make_speaker()
     listener = PiperListener()
     quick_responder = QuickResponder()
     supervisor = PiperSupervisor()
@@ -55,7 +58,7 @@ def main():
     
     state: AgentState = create_initial_state()
 
-    journal.log("SYSTEM", "Piper assistant runtime initialized.", "Inactivity timeout: 20s | Memory window: 8 turns")
+    journal.log("SYSTEM", "Piper assistant runtime initialized.", f"Inactivity timeout: {ENGAGED_TIMEOUT_SECONDS:g}s | Memory window: {CONFIG['assistant']['max_conversation_turns']} turns | TTS: {CONFIG['audio']['tts_engine']}")
 
     kb_thread = threading.Thread(target=keyboard_monitor, args=(journal,), daemon=True)
     kb_thread.start()

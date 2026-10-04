@@ -22,6 +22,7 @@ try:
     from piper_brain.config import CONFIG
 except ImportError:
     CONFIG = {}
+from piper_audio.devices import resolve
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 TARGET_HARDWARE_RATE = CONFIG.get("audio", {}).get("hardware_rate", 48000)
@@ -51,17 +52,7 @@ class PiperSpeaker:
         self.chime_data = self._generate_chime()
 
     def _resolve_usb_device(self) -> int | None:
-        devices = sd.query_devices()
-        hint = CONFIG.get("audio", {}).get("speaker_device_hint", "usb2.0").lower()
-        for idx, dev in enumerate(devices):
-            name = dev["name"].lower()
-            if (hint in name or "hw:0,0" in name) and dev["max_output_channels"] > 0:
-                print(f"[Speaker] Output bound to [{idx}]: {dev['name']}")
-                return idx
-        for idx, dev in enumerate(devices):
-            if "usb" in dev["name"].lower() and dev["max_output_channels"] > 0:
-                return idx
-        return None
+        return resolve(CONFIG.get("audio", {}).get("speaker_device_hint", "usb"), "output", "Speaker")
 
     def _generate_chime(self) -> np.ndarray:
         duration = 0.08

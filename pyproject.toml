@@ -1,0 +1,12 @@
+[project]
+name = "piper-assistant"
+version = "0.2.0"
+description = "Piper: local voice assistant runtime for the Jetson (voice, brain, and the piper-watch head)"
+requires-python = ">=3.10"
+
+# Runtime dependencies live in requirements.txt (several are Jetson-specific builds);
+# tests need only requirements-dev.txt.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -13,46 +13,21 @@ if str(SRC_DIR) not in sys.path:
 
 from typing import TypedDict, Optional, Literal, List, Dict, Any
 import re
-import yaml
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, END
 
+from piper_brain.config import CONFIG
 from piper_brain.tools import get_current_datetime_str, get_local_weather
 
-# Workspace and Configuration Path Resolution
+# Workspace path resolution
 WORKSPACE_DIR = Path(__file__).resolve().parents[2]
 PROFILES_DIR = WORKSPACE_DIR / "profiles"
 JOURNAL_FILE = WORKSPACE_DIR / "daily_journal.md"
 SYSTEM_DNA_FILE = WORKSPACE_DIR / "system_dna.md"
-CONFIG_FILE = WORKSPACE_DIR / "config.yaml"
 
 WAKE_PATTERNS = [r"\bhi\s+piper\b", r"\bhey\s+piper\b", r"\bhello\s+piper\b", r"\bpaper\b"]
 DISMISS_PATTERNS = [r"\bbye\s+piper\b", r"\bgoodbye\s+piper\b", r"\bbye\b", r"\bgoodbye\b", r"\bshut\s+down\b", r"\bexit\b"]
-
-
-def load_config() -> dict:
-    """Loads configuration with environment variable fallbacks."""
-    cfg = {
-        "assistant": {"max_conversation_turns": 8},
-        "llm": {
-            "base_url": os.getenv("PIPER_OLLAMA_URL", "http://192.168.1.150:11434"),
-            "model": os.getenv("PIPER_LLM_MODEL", "llama3.2:3b"),
-            "temperature": 0.4,
-        }
-    }
-    if CONFIG_FILE.exists():
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                user_cfg = yaml.safe_load(f)
-                if user_cfg:
-                    cfg.update(user_cfg)
-        except Exception as e:
-            print(f"[Supervisor Config Error]: {e}")
-    return cfg
-
-
-CONFIG = load_config()
 
 
 class PiperBrainState(TypedDict):
@@ -143,12 +118,13 @@ class PiperSupervisor:
         state["messages"].append(HumanMessage(content=text))
 
         current_time_str = get_current_datetime_str()
-        weather_summary = get_local_weather("Matthews,NC")
-        
+        weather_summary = get_local_weather()          # cached for weather.cache_minutes
+        location = CONFIG["weather"]["location"].replace(",", ", ")
+
         temporal_context = (
             f"\n\nENVIRONMENT CONTEXT:\n"
             f"- Current Date & Time: {current_time_str}\n"
-            f"- Location: Matthews, North Carolina\n"
+            f"- Location: {location}\n"
             f"- Local Weather: {weather_summary}\n"
         )
 

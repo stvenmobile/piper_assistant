@@ -16,8 +16,12 @@ import sounddevice as sd
 from scipy.signal import resample
 from faster_whisper import WhisperModel
 
-HARDWARE_SAMPLE_RATE = 48000
-WHISPER_SAMPLE_RATE = 16000
+from piper_brain.config import CONFIG
+from piper_audio.devices import resolve
+
+AUDIO_CFG = CONFIG["audio"]
+HARDWARE_SAMPLE_RATE = AUDIO_CFG["hardware_rate"]
+WHISPER_SAMPLE_RATE = AUDIO_CFG["whisper_rate"]
 
 # Common wake word variations and phonetic misspellings from Whisper
 WAKE_WORDS = ["piper", "hey piper", "hi piper", "paper", "hey paper", "hi paper"]
@@ -25,11 +29,13 @@ WAKE_WORDS = ["piper", "hey piper", "hi piper", "paper", "hey paper", "hi paper"
 class PiperListener:
     def __init__(
         self,
-        model_size: str = "base.en",
+        model_size: str | None = None,
         device: str = "cpu",
-        compute_type: str = "int8",
+        compute_type: str | None = None,
         sample_rate: int = HARDWARE_SAMPLE_RATE
     ):
+        model_size = model_size or AUDIO_CFG["whisper_model"]
+        compute_type = compute_type or AUDIO_CFG["whisper_compute"]
         print(f"[Listener] Loading faster-whisper ({model_size}) on {device} ({compute_type})...")
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
         self.sample_rate = sample_rate
@@ -37,18 +43,8 @@ class PiperListener:
         self.energy_threshold = self._calibrate_noise_floor()
 
     def _resolve_usb_mic(self) -> int | None:
-        """Finds sounddevice index for USB microphone hardware."""
-        devices = sd.query_devices()
-        for idx, dev in enumerate(devices):
-            name = dev["name"].lower()
-            if ("pnp" in name or "hw:1,0" in name) and dev["max_input_channels"] > 0:
-                print(f"[Listener] Microphone bound to [{idx}]: {dev['name']}")
-                return idx
-        for idx, dev in enumerate(devices):
-            if "usb" in dev["name"].lower() and dev["max_input_channels"] > 0:
-                print(f"[Listener] Microphone fallback bound to [{idx}]: {dev['name']}")
-                return idx
-        return None
+        """sounddevice index of the microphone named by audio.mic_device_hint (else any USB mic)."""
+        return resolve(AUDIO_CFG["mic_device_hint"], "input", "Listener")
 
     def _calculate_rms(self, audio_chunk: np.ndarray) -> float:
         """Calculates RMS signal energy."""

@@ -18,8 +18,9 @@ from scipy.signal import resample
 from kokoro import KPipeline
 
 from piper_brain.config import CONFIG
+from piper_audio.devices import resolve
 
-HARDWARE_SAMPLE_RATE = 48000
+HARDWARE_SAMPLE_RATE = CONFIG["audio"]["hardware_rate"]
 KOKORO_SAMPLE_RATE = 24000
 
 class KokoroSpeaker:
@@ -35,17 +36,7 @@ class KokoroSpeaker:
         self.chime_data = self._generate_chime()
 
     def _resolve_usb_device(self) -> int | None:
-        devices = sd.query_devices()
-        hint = CONFIG.get("audio", {}).get("speaker_device_hint", "usb2.0").lower()
-        for idx, dev in enumerate(devices):
-            name = dev["name"].lower()
-            if (hint in name or "hw:0,0" in name) and dev["max_output_channels"] > 0:
-                print(f"[KokoroSpeaker] Output bound to [{idx}]: {dev['name']}")
-                return idx
-        for idx, dev in enumerate(devices):
-            if "usb" in dev["name"].lower() and dev["max_output_channels"] > 0:
-                return idx
-        return None
+        return resolve(CONFIG.get("audio", {}).get("speaker_device_hint", "usb"), "output", "KokoroSpeaker")
 
     def _generate_chime(self) -> np.ndarray:
         duration = 0.08

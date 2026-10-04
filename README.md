@@ -121,6 +121,26 @@ audio:
 ```Bash
 python3 src/main.py
 (Press q + Enter in the terminal to stop cleanly).
+
+### 7.4 Choosing the microphone and speaker (SP-200)
+
+List the audio devices the Jetson sees, then put any unique part of the speakerphone's name in
+both `audio.mic_device_hint` and `audio.speaker_device_hint` in `config.yaml` (the SP-200 is
+the microphone and the speaker in one, with hardware echo cancellation):
+
+```Bash
+python3 src/piper_audio/devices.py
+```
+
+### 7.5 Tests
+
+Unit tests cover the config loader, the quick responder, the weather cache, conversation state
+and audio-device matching. They need no audio hardware, GPU or models:
+
+```Bash
+pip install -r requirements-dev.txt
+python3 -m pytest
+```
 ```
 
 ---

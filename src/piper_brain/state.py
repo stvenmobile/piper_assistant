@@ -5,9 +5,12 @@ Piper Brain: Global Agent State Definition with Conversation Windowing.
 from typing import TypedDict, Literal, List
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
+from piper_brain.config import CONFIG
+
 StatusType = Literal["IDLE", "ENGAGED", "PROCESSING", "SPEAKING"]
 
-MAX_CONVERSATION_TURNS = 8  # Retains the last 8 messages (4 user turns, 4 assistant replies)
+# Messages kept (8 = 4 user turns + 4 replies), from assistant.max_conversation_turns
+MAX_CONVERSATION_TURNS = int(CONFIG["assistant"]["max_conversation_turns"])
 
 class AgentState(TypedDict):
     messages: List[BaseMessage]
