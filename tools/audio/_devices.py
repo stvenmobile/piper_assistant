@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from piper_brain.config import CONFIG          # noqa: E402
-from piper_audio.devices import resolve        # noqa: E402
+from piper_audio.devices import resolve, channels_of, pick_channel, for_output   # noqa: E402,F401
 
 
 def mic() -> int | None:

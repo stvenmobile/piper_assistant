@@ -18,7 +18,7 @@ from scipy.signal import resample
 from kokoro import KPipeline
 
 from piper_brain.config import CONFIG
-from piper_audio.devices import resolve
+from piper_audio.devices import resolve, channels_of, for_output
 
 HARDWARE_SAMPLE_RATE = CONFIG["audio"]["hardware_rate"]
 KOKORO_SAMPLE_RATE = 24000
@@ -33,6 +33,7 @@ class KokoroSpeaker:
         self.pipeline = KPipeline(lang_code="a", device="cuda")
         
         self.device_index = self._resolve_usb_device()
+        self.out_channels = channels_of(self.device_index, "output")   # SP-200: 2
         self.chime_data = self._generate_chime()
 
     def _resolve_usb_device(self) -> int | None:
@@ -48,7 +49,7 @@ class KokoroSpeaker:
         return chime.astype(np.int16)
 
     def play_chime(self):
-        sd.play(self.chime_data, samplerate=HARDWARE_SAMPLE_RATE, device=self.device_index)
+        sd.play(for_output(self.chime_data, self.out_channels), samplerate=HARDWARE_SAMPLE_RATE, device=self.device_index)
         sd.wait()
 
     def speak(self, text: str):
@@ -72,5 +73,5 @@ class KokoroSpeaker:
         audio_48k = resample(combined_audio, num_samples_48k)
         audio_pcm = (audio_48k * self.volume * 32767.0).astype(np.int16)
 
-        sd.play(audio_pcm, samplerate=HARDWARE_SAMPLE_RATE, device=self.device_index)
+        sd.play(for_output(audio_pcm, self.out_channels), samplerate=HARDWARE_SAMPLE_RATE, device=self.device_index)
         sd.wait()

@@ -14,7 +14,7 @@ import sounddevice as sd
 from scipy.signal import resample
 from faster_whisper import WhisperModel
 
-from _devices import mic, speaker
+from _devices import mic, speaker, channels_of, pick_channel, for_output, CONFIG
 
 HARDWARE_RATE = 48000
 WHISPER_RATE = 16000
@@ -22,6 +22,9 @@ WHISPER_RATE = 16000
 # From config.yaml's audio.mic_device_hint / speaker_device_hint (the SP-200 is both)
 MIC_INDEX = mic()
 SPEAKER_INDEX = speaker()
+IN_CH = channels_of(MIC_INDEX, "input")          # SP-200: 6 (raw ALSA device)
+OUT_CH = channels_of(SPEAKER_INDEX, "output")    # SP-200: 2
+MIC_CHANNEL = int(CONFIG["audio"].get("mic_channel", 0))
 
 def calculate_rms(chunk: np.ndarray) -> float:
     return float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
@@ -32,9 +35,10 @@ def calibrate_ambient(duration: float = 2.0) -> float:
     samples_to_read = int(duration / 0.1)
     rms_values = []
 
-    with sd.InputStream(samplerate=HARDWARE_RATE, channels=1, dtype="int16", device=MIC_INDEX) as stream:
+    with sd.InputStream(samplerate=HARDWARE_RATE, channels=IN_CH, dtype="int16", device=MIC_INDEX) as stream:
         for _ in range(samples_to_read):
             chunk, _ = stream.read(chunk_samples)
+            chunk = pick_channel(chunk, MIC_CHANNEL)
             rms_values.append(calculate_rms(chunk))
 
     ambient_peak = float(np.max(rms_values))
@@ -51,9 +55,10 @@ def record_voice_phrase(threshold: float, max_duration: float = 6.0, silence_tim
     silence_start = None
     start_time = time.time()
 
-    with sd.InputStream(samplerate=HARDWARE_RATE, channels=1, dtype="int16", device=MIC_INDEX) as stream:
+    with sd.InputStream(samplerate=HARDWARE_RATE, channels=IN_CH, dtype="int16", device=MIC_INDEX) as stream:
         while True:
             chunk, _ = stream.read(chunk_samples)
+            chunk = pick_channel(chunk, MIC_CHANNEL)
             rms = calculate_rms(chunk)
             
             bars = "#" * min(40, int(rms / 50))
@@ -138,7 +143,7 @@ def main():
     if peak > 0:
         norm_audio = (norm_audio / peak) * 28000.0
 
-    sd.play(norm_audio.astype(np.int16), samplerate=HARDWARE_RATE, device=SPEAKER_INDEX)
+    sd.play(for_output(norm_audio.astype(np.int16), OUT_CH), samplerate=HARDWARE_RATE, device=SPEAKER_INDEX)
     sd.wait()
     print("[Done] Test complete.")
 

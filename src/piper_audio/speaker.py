@@ -22,7 +22,7 @@ try:
     from piper_brain.config import CONFIG
 except ImportError:
     CONFIG = {}
-from piper_audio.devices import resolve
+from piper_audio.devices import resolve, channels_of, for_output
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 TARGET_HARDWARE_RATE = CONFIG.get("audio", {}).get("hardware_rate", 48000)
@@ -49,6 +49,7 @@ class PiperSpeaker:
         
         self.volume = max(0.0, min(audio_cfg.get("volume", 0.45), 1.0))
         self.device_index = self._resolve_usb_device()
+        self.out_channels = channels_of(self.device_index, "output")   # SP-200: 2
         self.chime_data = self._generate_chime()
 
     def _resolve_usb_device(self) -> int | None:
@@ -66,7 +67,7 @@ class PiperSpeaker:
         return chime.astype(np.int16)
 
     def play_chime(self):
-        sd.play(self.chime_data, samplerate=TARGET_HARDWARE_RATE, device=self.device_index)
+        sd.play(for_output(self.chime_data, self.out_channels), samplerate=TARGET_HARDWARE_RATE, device=self.device_index)
         sd.wait()
 
     def speak(self, text: str):
@@ -91,7 +92,7 @@ class PiperSpeaker:
             audio_np = resample(audio_np, num_samples)
 
         audio_final = (audio_np * self.volume).astype(np.int16)
-        sd.play(audio_final, samplerate=TARGET_HARDWARE_RATE, device=self.device_index)
+        sd.play(for_output(audio_final, self.out_channels), samplerate=TARGET_HARDWARE_RATE, device=self.device_index)
         sd.wait()
 
 

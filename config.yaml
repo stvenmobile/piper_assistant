@@ -12,8 +12,9 @@ llm:
 audio:
   # Any unique part of the device names - list them with: python3 src/piper_audio/devices.py
   # For the SP-200 speakerphone (mic and speaker in one), set both hints to its name.
-  mic_device_hint: "pnp"
-  speaker_device_hint: "usb2.0"
+  mic_device_hint: "sp200"
+  speaker_device_hint: "sp200"
+  mic_channel: 0       # SP-200 input channel with the echo-cancelled voice - check with tools/audio/mic_channels.py
   hardware_rate: 48000
   whisper_rate: 16000
   whisper_model: "base.en"

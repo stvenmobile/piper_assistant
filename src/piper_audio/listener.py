@@ -17,7 +17,7 @@ from scipy.signal import resample
 from faster_whisper import WhisperModel
 
 from piper_brain.config import CONFIG
-from piper_audio.devices import resolve
+from piper_audio.devices import resolve, channels_of, pick_channel
 
 AUDIO_CFG = CONFIG["audio"]
 HARDWARE_SAMPLE_RATE = AUDIO_CFG["hardware_rate"]
@@ -40,6 +40,9 @@ class PiperListener:
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
         self.sample_rate = sample_rate
         self.input_device = self._resolve_usb_mic()
+        self.in_channels = channels_of(self.input_device, "input")   # SP-200: all 6 (raw ALSA device)
+        self.mic_channel = int(AUDIO_CFG.get("mic_channel", 0))
+        print(f"[Listener] Opening {self.in_channels} input channel(s), listening on channel {self.mic_channel}")
         self.energy_threshold = self._calibrate_noise_floor()
 
     def _resolve_usb_mic(self) -> int | None:
@@ -57,9 +60,10 @@ class PiperListener:
         samples_to_read = int(duration / 0.1)
         rms_values = []
 
-        with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype="int16", device=self.input_device) as stream:
+        with sd.InputStream(samplerate=self.sample_rate, channels=self.in_channels, dtype="int16", device=self.input_device) as stream:
             for _ in range(samples_to_read):
                 chunk, _ = stream.read(chunk_samples)
+                chunk = pick_channel(chunk, self.mic_channel)
                 rms_values.append(self._calculate_rms(chunk))
 
         ambient_peak = float(np.max(rms_values))
@@ -118,9 +122,10 @@ class PiperListener:
         silence_start = None
         loop_start = time.time()
 
-        with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype="int16", device=self.input_device) as stream:
+        with sd.InputStream(samplerate=self.sample_rate, channels=self.in_channels, dtype="int16", device=self.input_device) as stream:
             while True:
                 chunk, _ = stream.read(chunk_samples)
+                chunk = pick_channel(chunk, self.mic_channel)
                 rms = self._calculate_rms(chunk)
 
                 if rms > self.energy_threshold:
@@ -171,9 +176,10 @@ class PiperListener:
         silence_start = None
         start_time = time.time()
 
-        with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype="int16", device=self.input_device) as stream:
+        with sd.InputStream(samplerate=self.sample_rate, channels=self.in_channels, dtype="int16", device=self.input_device) as stream:
             while True:
                 chunk, _ = stream.read(chunk_samples)
+                chunk = pick_channel(chunk, self.mic_channel)
                 rms = self._calculate_rms(chunk)
 
                 if rms > self.energy_threshold:

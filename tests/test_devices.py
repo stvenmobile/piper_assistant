@@ -25,3 +25,27 @@ def test_falls_back_to_any_usb_device():
 
 def test_none_when_nothing_matches():
     assert find_device([DEVICES[0]], "sp-200", "input") is None
+
+
+import numpy as np
+
+from piper_audio.devices import for_output, open_channels, pick_channel
+
+
+def test_raw_devices_open_all_channels_mixers_mono():
+    assert open_channels(6) == 6          # SP-200 input (hw:2,0)
+    assert open_channels(2) == 2          # SP-200 output
+    assert open_channels(32) == 1         # 'pulse' / 'default'
+    assert open_channels(0) == 1
+
+
+def test_pick_channel_keeps_frames_by_one():
+    block = np.arange(12).reshape(4, 3)
+    assert pick_channel(block, 1).tolist() == [[1], [4], [7], [10]]
+    assert pick_channel(block, 9).shape == (4, 1)        # out of range -> last channel
+
+
+def test_for_output_duplicates_mono():
+    mono = np.array([1, 2, 3], dtype=np.int16)
+    assert for_output(mono, 2).tolist() == [[1, 1], [2, 2], [3, 3]]
+    assert for_output(mono, 1).tolist() == [1, 2, 3]

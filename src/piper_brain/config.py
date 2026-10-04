@@ -36,6 +36,8 @@ DEFAULTS: dict = {
         # them). The SP-200 speakerphone is both the microphone and the speaker.
         "mic_device_hint": "usb",
         "speaker_device_hint": "usb",
+        "mic_channel": 0,                 # which input channel to listen to on a multi-channel mic
+                                          #   (SP-200: channel 0 should be the echo-cancelled voice)
         "hardware_rate": 48000,
         "whisper_rate": 16000,
         "whisper_model": "base.en",

@@ -26,6 +26,35 @@ def find_device(devices, hint: str, kind: str) -> int | None:
     return None
 
 
+def open_channels(max_channels: int) -> int:
+    """How many channels to open a device with. Raw ALSA devices (like the SP-200's hw:2,0, which
+    has 6 inputs and 2 outputs) refuse any other count, so open them all; mixer devices such as
+    'pulse' or 'default' advertise 32 and are opened mono."""
+    return max_channels if 1 <= max_channels <= 8 else 1
+
+
+def pick_channel(chunk, channel: int):
+    """One column of a (frames, channels) block, kept 2-D as (frames, 1)."""
+    channel = min(channel, chunk.shape[1] - 1)
+    return chunk[:, channel:channel + 1]
+
+
+def for_output(audio, channels: int):
+    """Mono samples -> the device's channel count (the same signal on every channel)."""
+    import numpy as np
+    audio = np.asarray(audio)
+    if channels <= 1 or audio.ndim > 1:
+        return audio
+    return np.repeat(audio[:, None], channels, axis=1)
+
+
+def channels_of(index, kind: str) -> int:
+    """open_channels() for a sounddevice device index (None = system default)."""
+    import sounddevice as sd
+    info = sd.query_devices(index, kind)
+    return open_channels(info["max_input_channels" if kind == "input" else "max_output_channels"])
+
+
 def resolve(hint: str, kind: str, label: str = "Audio") -> int | None:
     """find_device() over the devices sounddevice can see, with a log line."""
     import sounddevice as sd
