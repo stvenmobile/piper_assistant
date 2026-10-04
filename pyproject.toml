@@ -10,3 +10,6 @@ requires-python = ">=3.10"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# The Jetson's system-wide ROS 2 install ships pytest plugins that are too old for pytest 8;
+# the tests need none (or run with PYTEST_DISABLE_PLUGIN_AUTOLOAD=1).
+addopts = ["-p", "no:launch_testing", "-p", "no:launch_ros"]
