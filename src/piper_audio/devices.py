@@ -55,10 +55,20 @@ def channels_of(index, kind: str) -> int:
     return open_channels(info["max_input_channels" if kind == "input" else "max_output_channels"])
 
 
-def resolve(hint: str, kind: str, label: str = "Audio") -> int | None:
-    """find_device() over the devices sounddevice can see, with a log line."""
+def resolve(hint: str, kind: str, label: str = "Audio", wait_s: float = 6.0) -> int | None:
+    """find_device() over the devices sounddevice can see, with a log line. A device that is busy
+    (held by another program, e.g. PulseAudio) is silently missing from PortAudio's list, so if
+    the hint isn't there yet, re-scan for up to wait_s before falling back."""
+    import time
     import sounddevice as sd
-    devices = sd.query_devices()
+    deadline = time.monotonic() + wait_s
+    while True:
+        devices = sd.query_devices()
+        if any(hint.lower() in d["name"].lower() for d in devices) or time.monotonic() > deadline:
+            break
+        print(f"[{label}] '{hint}' not in the device list yet (busy or unplugged?) - retrying...")
+        time.sleep(1.0)
+        sd._terminate(); sd._initialize()           # make PortAudio re-scan the devices
     idx = find_device(devices, hint, kind)
     if idx is None:
         print(f"[{label}] No {kind} device matches '{hint}' or 'usb' - using the system default.")

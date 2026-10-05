@@ -19,16 +19,17 @@ fi
 source "${VENV_PATH}/bin/activate"
 echo "[Setup] Virtual environment: $(python3 --version)"
 
-# 2. Audio: unmute the speaker sink named by audio.speaker_device_hint (the SP-200), if
-#    PulseAudio/PipeWire is running. The assistant itself picks its devices by name.
+# 2. Audio: Piper opens the SP-200 directly (raw ALSA, all 6 mic channels). If PulseAudio/PipeWire
+#    holds the card, the device is busy and silently missing from Piper's device list - so switch
+#    the PulseAudio card named by audio.speaker_device_hint to profile "off" (releases it).
 if command -v pactl &> /dev/null; then
     HINT="$(python3 -c 'import sys; sys.path.insert(0, "src"); from piper_brain.config import CONFIG; print(CONFIG["audio"]["speaker_device_hint"])' 2>/dev/null || true)"
-    SINK="$(pactl list short sinks 2>/dev/null | grep -i -- "${HINT}" | head -1 | cut -f2 || true)"
-    if [[ -n "${HINT}" && -n "${SINK}" ]]; then
-        pactl set-sink-mute "${SINK}" 0 || true
-        echo "[Audio] Unmuted ${SINK}"
+    CARD="$(pactl list short cards 2>/dev/null | grep -i -- "${HINT}" | head -1 | cut -f2 || true)"
+    if [[ -n "${HINT}" && -n "${CARD}" ]]; then
+        pactl set-card-profile "${CARD}" off || true
+        echo "[Audio] Released ${CARD} from PulseAudio for Piper"
     else
-        echo "[Audio] No PulseAudio sink matches '${HINT}' - leaving audio settings alone"
+        echo "[Audio] PulseAudio has no card matching '${HINT}' - nothing to release"
     fi
 fi
 
