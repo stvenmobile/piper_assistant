@@ -48,5 +48,14 @@ if [[ "${HEAD_ENABLED}" == "True" ]]; then
     echo "[Head] Link service started (pid ${HEAD_PID})"
 fi
 
-# 5. Run (Ctrl+C, or type q + Enter, to stop)
+# 5. Vision (camera, face tracking -> the ring's attention arc), also in the background
+VISION_ENABLED="$(python3 -c 'import sys; sys.path.insert(0, "src"); from piper_brain.config import CONFIG; print(CONFIG["vision"]["enabled"])' 2>/dev/null || echo False)"
+if [[ "${VISION_ENABLED}" == "True" ]]; then
+    python3 src/piper_vision/service.py &
+    VISION_PID=$!
+    trap 'kill ${HEAD_PID:-} ${VISION_PID} 2>/dev/null || true' EXIT
+    echo "[Vision] Service started (pid ${VISION_PID})"
+fi
+
+# 6. Run (Ctrl+C, or type q + Enter, to stop)
 python3 src/main.py "$@"

@@ -51,6 +51,10 @@ class HeadClient:
         """Show a state on the ring; mood and attention= are optional."""
         return self.send(protocol.face(state, mood, **kw))
 
+    def attention(self, deg: float | None) -> bool:
+        """Point the ring's attention arc (0 = top, clockwise from the front), or None to clear."""
+        return self.send(protocol.attention(deg))
+
     def assistant_state(self, status: str, mood: str | None = None) -> bool:
         """The assistant's own state names (IDLE / ENGAGED / PROCESSING / SPEAKING)."""
         state = protocol.ASSISTANT_TO_FACE.get(status)

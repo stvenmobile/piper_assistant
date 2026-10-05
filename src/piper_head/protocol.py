@@ -62,5 +62,11 @@ def face(state: str, mood: str | None = None, attention=_UNSET) -> dict:
     return msg
 
 
+def attention(deg: float | None) -> dict:
+    """Move (or, with None, clear) the ring's attention arc without touching its state/mood -
+    what the vision service sends. The ESP32 and the link keep the state they have."""
+    return {"t": "FACE", "attention": None if deg is None else float(deg)}
+
+
 def config(**fields) -> dict:
     return {"t": "CONFIG", **fields}

@@ -57,7 +57,20 @@ DEFAULTS: dict = {
         "port": 8770,
         "heartbeat_s": 0.5,               # the ESP32 shows "offline" after 3 s without one
     },
-        "weather": {
+        "vision": {                           # piper_vision: camera, face detection, attention
+        "enabled": True,
+        "camera_name": "C920",            # matched against /sys/class/video4linux/*/name
+        "camera_device": "/dev/video0",   # fallback if no name matches
+        "width": 1280, "height": 720, "fps": 30,
+        "focus": 20,                      # locked focus (C920: 0 = infinity ... 250 = close)
+        "hfov_deg": 70.4,                 # C920 horizontal field of view at 16:9
+        "detect_width": 640,              # faces are detected on a copy this wide
+        "score": 0.8,                     # YuNet confidence threshold
+        "lost_s": 0.8,                    # let go of a target unseen this long
+        "attention_gain": 2.5,            # ring degrees per degree of head angle (edge of view ~ 90)
+        "preview_port": 8081,             # live preview page (0 = off)
+    },
+    "weather": {
         "location": "Matthews,NC",
         "cache_minutes": 10,
     },
