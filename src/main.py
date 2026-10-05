@@ -19,6 +19,9 @@ from piper_brain.supervisor import PiperSupervisor, PiperBrainState
 from piper_brain.state import AgentState, create_initial_state, append_and_truncate_message
 from piper_brain.journal import ActivityJournal
 from piper_head.client import HeadClient
+from piper_skills import Context
+from piper_skills.meet_person import MeetPerson, is_forget_request
+from piper_vision.client import VisionClient
 
 ENGAGED_TIMEOUT_SECONDS = float(CONFIG["assistant"]["engaged_timeout_seconds"])
 running = True
@@ -69,6 +72,35 @@ def main():
     state: AgentState = create_initial_state()
     set_status(state, "IDLE")
 
+    # Who is Piper talking to? With vision, whoever she recognises (and she won't help anyone
+    # she doesn't know by name - piper_skills/meet_person.py). Without it, the old default.
+    vision = VisionClient()
+    active_user = None
+
+    def say(text: str, mood: str = "neutral"):
+        print(f"[Piper]: {text}")
+        set_status(state, "SPEAKING", mood)
+        speaker.speak(text)
+        set_status(state, "ENGAGED", mood)
+
+    def hear() -> str:
+        text = listener.listen_command_window(max_duration=8.0, silence_timeout=1.0)
+        text = listener._strip_wake_word(text) if text else ""
+        if text:
+            print(f"[User]: {text}")
+        return text
+
+    meet = MeetPerson(Context(say=say, hear=hear, vision=vision, log=journal.log),
+                      welcome_back_s=60 * float(CONFIG["assistant"]["welcome_back_minutes"]),
+                      required=bool(CONFIG["assistant"]["require_known_person"]))
+
+    def engage(name: str):
+        """Piper has just greeted / met `name`: listen for them without the wake word."""
+        nonlocal active_user
+        active_user = name
+        set_status(state, "ENGAGED")
+        state["last_interaction_time"] = time.time()
+
     journal.log("SYSTEM", "Piper assistant runtime initialized.", f"Inactivity timeout: {ENGAGED_TIMEOUT_SECONDS:g}s | Memory window: {CONFIG['assistant']['max_conversation_turns']} turns | TTS: {CONFIG['audio']['tts_engine']}")
 
     kb_thread = threading.Thread(target=keyboard_monitor, args=(journal,), daemon=True)
@@ -87,6 +119,12 @@ def main():
 
             # 2. State-dependent listening strategy
             if state["status"] == "IDLE":
+                # someone new in view, or someone back? (meets / welcomes them - no wake word)
+                name = meet.on_idle()
+                if name:
+                    engage(name)
+                    continue
+
                 raw_text = listener.listen_for_wake_word_and_command(max_command_duration=6.0)
                 if not raw_text:
                     continue
@@ -113,6 +151,26 @@ def main():
                 continue
 
             print(f"\n[User]: {user_text}")
+
+            # 2b. Only people Piper knows by name get an answer
+            go_ahead, name = meet.gate(user_text)
+            if name:
+                active_user = name
+            if not go_ahead:
+                if name:
+                    engage(name)
+                else:
+                    set_status(state, "IDLE")
+                continue
+            if meet.handle_command(user_text, active_user):
+                if is_forget_request(user_text):
+                    active_user = None
+                    set_status(state, "IDLE")
+                else:
+                    set_status(state, "ENGAGED")
+                state["last_interaction_time"] = time.time()
+                continue
+
             append_and_truncate_message(state, HumanMessage(content=user_text))
 
             # 3. Fast-Path Local Intent Check
@@ -145,7 +203,7 @@ def main():
 
             brain_state: PiperBrainState = {
                 "mode": "ENGAGED",
-                "active_user": "Steve",
+                "active_user": active_user or ("Steve" if not meet.active() else None),
                 "input_text": user_text,
                 "output_text": None,
                 "user_context": "",

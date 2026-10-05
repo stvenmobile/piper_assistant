@@ -208,7 +208,18 @@ Each part can be restarted or tested on its own: the light ring can be developed
 | A conversation ends after 20 s of silence or "goodbye"      | It can also end when the person **walks away**, and stay open while they are still there thinking                                        |
 | No sense of who is speaking when several people are present | The head turns to the face it is attending to, and the ring's attention arc points at them                                               |
 
-Recognition stays on the Jetson: face embeddings are stored locally, enrolment is opt-in ("Piper, remember me"), and "Piper, forget me" deletes a person.
+Recognition stays on the Jetson: face prints are stored locally in `faces/` (git-ignored), only after someone gives their name, and "Piper, forget me" deletes a person.
+
+**Meeting people** (`src/piper_skills/meet_person.py`, built): Piper only helps people she knows by name.
+
+- A stranger in view is asked their name straight away; no wake word is needed. Until she has it, she answers nothing else ("first I need to know who you are").
+- She checks the name ("Steve? Did I get that right?"). A correction ("no, it's Stephen") or a spelling ("S-T-E-V-E") also works.
+- She then asks them to look at her while vision stores five looks at their face. She also starts a profile for them in `profiles/<name>.md`.
+- Someone who won't say is told they can say goodbye. After "goodbye" she leaves them alone until they walk away and come back.
+- Someone she knows gets "Welcome back, Steve! How can I help you today?", but not again if they were there in the last 10 minutes.
+- "Who am I?" and "forget me" also work.
+- Without the vision service, she behaves as before.
+- Settings: `assistant.require_known_person`, `assistant.welcome_back_minutes`, and the `vision.recognize` / `match_threshold` / `enroll_*` keys.
 
 ### 6.3 State display and mood expression
 

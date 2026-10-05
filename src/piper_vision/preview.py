@@ -17,6 +17,7 @@ class Preview:
     def __init__(self, port: int):
         self.port = port
         self.jpeg = None
+        self.viewers = 0                   # open /stream connections - no point encoding without one
         self.cond = threading.Condition()
 
     def publish(self, jpeg: bytes):
@@ -36,6 +37,7 @@ class Preview:
                     self.send_response(200)
                     self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
                     self.end_headers()
+                    preview.viewers += 1
                     try:
                         while True:
                             with preview.cond:
@@ -47,6 +49,8 @@ class Preview:
                             time.sleep(0.05)               # ~20 fps is plenty for a preview
                     except (BrokenPipeError, ConnectionResetError):
                         return
+                    finally:
+                        preview.viewers -= 1
                 else:
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html")

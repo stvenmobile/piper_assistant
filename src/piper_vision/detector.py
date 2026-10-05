@@ -22,11 +22,17 @@ class FaceDetector:
         self.net = cv2.FaceDetectorYN.create(str(path), "", self.size, score, 0.3, 50)
 
     def detect(self, frame) -> list[tuple]:
-        """Faces as (x, y, w, h, score) in the frame's own pixels, best first."""
+        """Faces as (x, y, w, h, score, landmarks) in the frame's own pixels, best first.
+        landmarks is YuNet's full row (box, eyes, nose, mouth corners, score) scaled to the
+        frame - what the recognizer needs to align a face."""
         small = cv2.resize(frame, self.size, interpolation=cv2.INTER_AREA)
         _, faces = self.net.detect(small)
         if faces is None:
             return []
         s = 1 / self.scale
-        out = [(float(f[0] * s), float(f[1] * s), float(f[2] * s), float(f[3] * s), float(f[14])) for f in faces]
+        out = []
+        for f in faces:
+            row = f.copy()
+            row[:14] *= s
+            out.append((float(row[0]), float(row[1]), float(row[2]), float(row[3]), float(f[14]), row))
         return sorted(out, key=lambda b: -b[4])

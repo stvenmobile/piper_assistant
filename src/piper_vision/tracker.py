@@ -19,6 +19,8 @@ class Target:
     size: float                # smoothed box width, pixels
     last_seen: float           # time.monotonic() of the last match
     first_seen: float
+    id: int = 0                # a new number for each new person tracked
+    box: tuple | None = None   # the detection matched this frame (None if not seen this frame)
 
 
 def box_centre(b):
@@ -36,10 +38,12 @@ class Tracker:
         self.alpha = smoothing          # 0 = no smoothing, closer to 1 = smoother/slower
         self.match_frac = match_frac    # a box within this * target size counts as the same person
         self.target: Target | None = None
+        self.next_id = 1
 
     def update(self, boxes, now: float) -> Target | None:
         """Feed one frame's face boxes; returns the current target (or None)."""
         if self.target is not None:
+            self.target.box = None
             best, best_d = None, None
             for b in boxes:
                 cx, cy = box_centre(b)
@@ -53,12 +57,14 @@ class Tracker:
                 t.cx, t.cy = a * t.cx + (1 - a) * cx, a * t.cy + (1 - a) * cy
                 t.size = a * t.size + (1 - a) * best[2]
                 t.last_seen = now
+                t.box = best
             elif now - self.target.last_seen > self.lost_s:
                 self.target = None
         if self.target is None and boxes:
             b = max(boxes, key=lambda b: b[2] * b[3])          # largest = nearest
             cx, cy = box_centre(b)
-            self.target = Target(cx, cy, b[2], now, now)
+            self.target = Target(cx, cy, b[2], now, now, self.next_id, b)
+            self.next_id += 1
         return self.target
 
     def angles(self, t: Target) -> tuple[float, float]:

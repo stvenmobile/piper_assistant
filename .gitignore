@@ -58,3 +58,8 @@ kokoro_models/
 # branches / in curious-george; main is the runtime
 data/
 obsidian/
+
+# Face prints (biometric data - stays on the Jetson) and the profiles of people Piper meets
+faces/
+profiles/*
+!profiles/steve.md

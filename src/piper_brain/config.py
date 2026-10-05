@@ -24,6 +24,8 @@ DEFAULTS: dict = {
         "name": "Piper",
         "engaged_timeout_seconds": 20.0,
         "max_conversation_turns": 8,
+        "require_known_person": True,     # with vision: only help people Piper knows by name
+        "welcome_back_minutes": 10,       # don't re-greet someone who was here this recently
     },
     "llm": {
         "provider": "ollama",
@@ -69,6 +71,17 @@ DEFAULTS: dict = {
         "lost_s": 0.8,                    # let go of a target unseen this long
         "attention_gain": 2.5,            # ring degrees per degree of head angle (edge of view ~ 90)
         "preview_port": 8081,             # live preview page (0 = off)
+        "events_port": 8771,              # the vision hub: who is present, enrolment (localhost)
+        # face recognition (SFace) - faces/ holds the face prints, never in git
+        "recognize": True,
+        "match_threshold": 0.40,          # cosine similarity to count as the same person
+        "recognize_s": 0.5,               # how often to take a face print of the tracked person
+        "min_face_px": 90,                # ignore faces smaller than this (too far away)
+        "min_sharpness": 15.0,            # ignore blurry looks (Laplacian variance of the crop)
+        "enroll_looks": 5,                # looks stored when meeting someone ...
+        "enroll_min_looks": 3,            # ... at least this many, or enrolment fails
+        "enroll_s": 8.0,                  # ... within this long
+        "enroll_gap_s": 0.3,              # ... this far apart
     },
     "weather": {
         "location": "Matthews,NC",

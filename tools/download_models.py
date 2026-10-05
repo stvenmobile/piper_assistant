@@ -15,6 +15,11 @@ FILES = {
         "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
         "https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx",
     ],
+    # OpenCV Zoo's SFace face recogniser (~37 MB, Apache 2.0)
+    "face_recognition_sface_2021dec.onnx": [
+        "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
+        "https://huggingface.co/opencv/face_recognition_sface/resolve/main/face_recognition_sface_2021dec.onnx",
+    ],
 }
 
 
