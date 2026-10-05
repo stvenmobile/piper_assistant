@@ -24,6 +24,8 @@ class VisionClient:
         self.sock = None
         self.connected = False
         self.presence = {"present": False, "track": None, "who": None, "recognition": False}
+        self.last_seen: dict = {}       # name -> when they were last in view (monotonic)
+        self.away: dict = {}            # name -> how long they'd been gone before this visit
         self.replies: queue.Queue = queue.Queue()
         self.lock = threading.Lock()
         if self.enabled:
@@ -35,6 +37,26 @@ class VisionClient:
         recognised yet. recognition is False when the vision service can't recognise faces."""
         with self.lock:
             return dict(self.presence)
+
+    def away_before(self, name: str) -> float | None:
+        """How long `name` had been out of view before their current visit, in seconds
+        (None = not seen before since the assistant started)."""
+        with self.lock:
+            return self.away.get(name)
+
+    def _update_presence(self, new: dict):
+        """Keep presence, and when each person was last seen: a look-away (a new track a
+        moment later) is a short absence, not an arrival."""
+        now = time.monotonic()
+        with self.lock:
+            prev = self.presence.get("who")
+            who = new.get("who")
+            if prev and prev != who:
+                self.last_seen[prev] = now
+            if who and who != prev:
+                last = self.last_seen.get(who)
+                self.away[who] = None if last is None else now - last
+            self.presence = new
 
     def still_here(self, track) -> bool:
         p = self.who()
@@ -114,15 +136,13 @@ class VisionClient:
                         if not msg:
                             continue
                         if msg["t"] == "PRESENCE":
-                            with self.lock:
-                                self.presence = {k: msg.get(k) for k in ("present", "track", "who", "recognition")}
+                            self._update_presence({k: msg.get(k) for k in ("present", "track", "who", "recognition")})
                         else:
                             self.replies.put(msg)
             except OSError:
                 pass
             self.sock, self.connected = None, False
-            with self.lock:
-                self.presence = {"present": False, "track": None, "who": None, "recognition": False}
+            self._update_presence({"present": False, "track": None, "who": None, "recognition": False})
             try:
                 sock.close()
             except OSError:

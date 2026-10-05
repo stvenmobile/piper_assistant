@@ -41,6 +41,10 @@ class FakeVision:
         self.p = {"present": True, "track": track, "who": who, "recognition": True}
         self.enroll_result = enroll
         self.enrolled, self.forgotten = [], []
+        self.away = {}
+
+    def away_before(self, name):
+        return self.away.get(name)
 
     def who(self):
         return dict(self.p)
@@ -68,8 +72,7 @@ def run(vision, replies, **kw):
     replies = list(replies)
     ctx = Context(say=lambda text, mood="neutral": said.append(text),
                   hear=lambda: replies.pop(0) if replies else "", vision=vision)
-    clock = kw.pop("clock", None)
-    skill = MeetPerson(ctx, clock=clock or (lambda: 0.0), **kw)
+    skill = MeetPerson(ctx, **kw)
     return skill, said
 
 
@@ -132,15 +135,32 @@ def test_stranger_asking_a_question_gets_asked_their_name():
 
 
 def test_welcomes_back_a_known_face_once():
-    t = [0.0]
     v = FakeVision(who="Steve")
-    skill, said = run(v, [], clock=lambda: t[0], welcome_back_s=600)
-    assert skill.on_idle() == "Steve" and "Steve" in said[0]
+    skill, said = run(v, [], welcome_back_s=600)
+    assert skill.on_idle() == "Steve" and "Steve" in said[0]   # first sighting
     assert skill.on_idle() is None                          # same visit
-    v.p["track"] = 2; t[0] = 60                             # looked away a minute
+    v.p["track"] = 2; v.away["Steve"] = 2.0                 # looked away for a moment
     assert skill.on_idle() is None
-    v.p["track"] = 3; t[0] = 60 + 601                       # gone a while
+    v.p["track"] = 3; v.away["Steve"] = 601                 # gone a while
     assert skill.on_idle() == "Steve"
+
+
+def test_vision_client_measures_how_long_someone_was_away(monkeypatch):
+    from piper_vision import client as vc
+    t = [100.0]
+    monkeypatch.setattr(vc.time, "monotonic", lambda: t[0])
+    c = vc.VisionClient(enabled=False)
+    def presence(track, who):
+        c._update_presence({"present": track is not None, "track": track, "who": who, "recognition": True})
+    presence(1, None); presence(1, "Steve")
+    assert c.away_before("Steve") is None                   # first time
+    t[0] = 400; presence(None, None)                        # looks away ...
+    t[0] = 401; presence(2, None)
+    t[0] = 402; presence(2, "Steve")                        # ... new track, recognised again
+    assert c.away_before("Steve") == 2
+    t[0] = 500; presence(None, None)
+    t[0] = 1200; presence(3, "Steve")                       # back after ~12 minutes
+    assert c.away_before("Steve") == 700
 
 
 def test_known_person_passes_the_gate():

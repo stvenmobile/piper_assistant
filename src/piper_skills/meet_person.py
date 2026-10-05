@@ -15,7 +15,6 @@ as she did before she could see.
 """
 import random
 import re
-import time
 from datetime import date
 from pathlib import Path
 
@@ -128,25 +127,18 @@ class MeetPerson:
     MAX_TRIES = 3               # misheard names before she asks for a spelling
     VERDICT_WAIT_S = 3.0
 
-    def __init__(self, ctx: Context, welcome_back_s: float = 600, required: bool = True,
-                 clock=time.monotonic):
+    def __init__(self, ctx: Context, welcome_back_s: float = 600, required: bool = True):
         self.ctx = ctx
         self.welcome_back_s = welcome_back_s
         self.required = required
-        self.clock = clock
         self.dismissed: set = set()      # tracks that said goodbye (or asked to be forgotten)
         self.quiet: set = set()          # tracks that never answered - wait until they speak
-        self.last_present: dict = {}     # name -> when last seen
-        self.greeted_track = None
+        self.greeted_track = None        # the visit (track) Piper has already greeted / met
 
     # --- when is the gate in force? ---------------------------------------------------------------
     def active(self) -> bool:
         v = self.ctx.vision
         return self.required and getattr(v, "connected", False) and v.who().get("recognition", False)
-
-    def _seen(self, p):
-        if p.get("who"):
-            self.last_present[p["who"]] = self.clock()
 
     # --- called by the main loop while idle --------------------------------------------------------
     def on_idle(self) -> str | None:
@@ -159,13 +151,12 @@ class MeetPerson:
             return None
         track, who = p["track"], p["who"]
         if who:                                             # someone she knows
-            last = self.last_present.get(who)
-            self._seen(p)
             if track == self.greeted_track:
                 return None
             self.greeted_track = track
-            if last is not None and self.clock() - last < self.welcome_back_s:
-                return None                                 # stepped away briefly - no fuss
+            away = self.ctx.vision.away_before(who)         # measured by vision, not by us
+            if away is not None and away < self.welcome_back_s:
+                return None                                 # looked away / stepped out briefly
             self.ctx.log("PERSON", f"Welcome back {who}", f"track {track}")
             self.ctx.say(random.choice([
                 f"Welcome back, {who}! How can I help you today?",
@@ -191,7 +182,6 @@ class MeetPerson:
             self.ctx.say("Could you look at me for a moment, so I can see who you are?", "curious")
             return False, None
         if p["who"]:
-            self._seen(p)
             self.greeted_track = p["track"]
             return True, p["who"]
         track = p["track"]
@@ -211,7 +201,6 @@ class MeetPerson:
             self.ctx.log("PERSON", f"Forget {name}", "done" if ok else "failed")
             if ok:
                 self.dismissed.add(self.ctx.vision.who().get("track"))
-                self.last_present.pop(name, None)
                 self.ctx.say(f"Okay, {name}. I've forgotten your face. Goodbye!", "neutral")
             else:
                 self.ctx.say("Sorry, something went wrong and I couldn't do that.", "concerned")
@@ -227,7 +216,6 @@ class MeetPerson:
         self.ctx.log("PERSON", f"Meeting track {track}: {outcome}", name or "")
         if outcome == MET:
             self.greeted_track = track
-            self.last_present[name] = self.clock()
             return name
         if outcome == GOODBYE:
             self.dismissed.add(track)
