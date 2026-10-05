@@ -28,7 +28,7 @@ DEFAULTS: dict = {
     "llm": {
         "provider": "ollama",
         "base_url": "http://192.168.1.150:11434",
-        "model": "llama3.2:3b",
+        "model": "llama3.2:latest",       # = the 3B model (tag as installed in Ollama)
         "temperature": 0.4,
     },
     "audio": {

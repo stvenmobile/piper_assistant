@@ -32,7 +32,7 @@ Piper's research side - curiosity, choosing what to study and checking whether s
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | **NVIDIA Jetson Orin NX 16 GB** in a Seeed **reComputer J4012**       | runs everything here (Ubuntu 22.04, JetPack 6.1, CUDA 12.6)                                                                           |
 | **SP-200 USB speakerphone** (4-mic array, hardware echo cancellation) | microphone and speaker; sits on the desk wherever is convenient. Until it is configured, a USB microphone and a USB speaker are used. |
-| **Ollama** server on the local network (`llama3.2:3b`)                | the language model for anything the quick responder can't answer                                                                      |
+| **Ollama** server on the local network (`llama3.2:latest`, the 3B model)                | the language model for anything the quick responder can't answer                                                                      |
 | **piper-watch** (planned)                                             | the robot head: camera, light ring, pan motor - sits on top of the reComputer                                                         |
 
 ---
@@ -130,7 +130,7 @@ assistant:
   max_conversation_turns: 8         # messages kept in the conversation
 llm:
   base_url: "http://192.168.1.150:11434"
-  model: "llama3.2:3b"
+  model: "llama3.2:latest"
 audio:
   mic_device_hint: "pnp"            # any unique part of the device name (see 5.3)
   speaker_device_hint: "usb2.0"
