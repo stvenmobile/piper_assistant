@@ -30,6 +30,7 @@ DEFAULTS: dict = {
         "base_url": "http://192.168.1.150:11434",
         "model": "llama3.2:latest",       # = the 3B model (tag as installed in Ollama)
         "temperature": 0.4,
+        "keep_alive": "2h",               # how long Ollama keeps the model loaded between requests
     },
     "audio": {
         # Substrings of the sounddevice names (run `python3 src/piper_audio/devices.py` to list

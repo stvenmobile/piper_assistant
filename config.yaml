@@ -8,6 +8,7 @@ llm:
   base_url: "http://192.168.1.150:11434"
   model: "llama3.2:latest"   # the 3B model - Ollama on the PC has it tagged "latest", not "3b"
   temperature: 0.4
+  keep_alive: "2h"     # keep the model loaded on the PC (a cold load took ~80 s)
 
 audio:
   # Any unique part of the device names - list them with: python3 src/piper_audio/devices.py

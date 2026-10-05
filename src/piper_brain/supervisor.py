@@ -4,6 +4,8 @@ Piper Supervisor: Voice-Driven Autonomous State Machine with Dynamic Context and
 
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 # Ensure src/ directory is on sys.path for direct script execution
@@ -61,9 +63,21 @@ class PiperSupervisor:
         self.llm = ChatOllama(
             model=llm_cfg["model"],
             temperature=llm_cfg.get("temperature", 0.4),
-            base_url=llm_cfg["base_url"]
-        )
+            base_url=llm_cfg["base_url"],
+            keep_alive=llm_cfg.get("keep_alive", "2h"),   # Ollama unloads idle models after 5 min,
+        )                                                 #   and reloading took ~80 s on the PC
         self.system_prompt = SystemMessage(content=load_system_prompt())
+        threading.Thread(target=self._warm_up, daemon=True).start()
+
+    def _warm_up(self):
+        """Load the model on the Ollama server in the background, so the first question after
+        start-up doesn't wait for it."""
+        t0 = time.time()
+        try:
+            self.llm.invoke([HumanMessage(content="Reply with OK.")])
+            print(f"[Supervisor] Model warm ({time.time() - t0:.1f} s)")
+        except Exception as e:
+            print(f"[Supervisor] Warm-up failed (is Ollama reachable?): {e}")
         self.graph = self._build_graph()
 
     def evaluate_audio_event_node(self, state: PiperBrainState) -> PiperBrainState:
