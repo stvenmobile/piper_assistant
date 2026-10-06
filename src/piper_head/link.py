@@ -2,6 +2,7 @@
 Head link service: the one program that talks to the piper-watch ESP32.
 
     python3 -m piper_head.link          (from src/; start_piper.sh starts it)
+    python3 src/piper_head/link.py -v   verbose: print every message to and from the ESP32
 
 * Finds the ESP32-S3 on USB (Espressif's vendor ID) or uses head.serial_port, and reconnects
   if it is unplugged or resets.
@@ -12,6 +13,7 @@ Head link service: the one program that talks to the piper-watch ESP32.
 * Remembers the last FACE and CONFIG and re-sends them whenever the ESP32 (re)connects or
   reboots, so the ring is never stuck showing a stale state.
 """
+import argparse
 import socket
 import sys
 import threading
@@ -75,9 +77,18 @@ def find_port(setting: str) -> str | None:
     return None
 
 
+def describe_ports() -> str:
+    """The serial ports that ARE there - for the 'no ESP32 found' message."""
+    from serial.tools import list_ports
+    ports = [f"{p.device} ({p.vid or 0:04X}:{p.pid or 0:04X} {p.description})" for p in list_ports.comports()]
+    return ", ".join(ports) or "none"
+
+
 class Service:
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, verbose: bool = False):
         self.cfg = cfg
+        self.verbose = verbose
+        self.last_drop_warn = 0.0
         self.core = HeadLink()
         self.lock = threading.Lock()
         self.write_lock = threading.Lock()    # heartbeats and clients write from different threads
@@ -90,10 +101,16 @@ class Service:
             ser = self.serial
         for m in msgs:
             if ser is None:
+                # say so (at most every 5 s) instead of silently dropping what clients send
+                if m.get("t") != "HEARTBEAT" and time.monotonic() - self.last_drop_warn > 5:
+                    self.last_drop_warn = time.monotonic()
+                    print(f"[HeadLink] No ESP32 connected - not sent: {m}")
                 return
             try:
                 with self.write_lock:
                     ser.write(protocol.encode(m))
+                if self.verbose and m.get("t") != "HEARTBEAT":
+                    print(f"[HeadLink] -> ESP32  {m}")
             except Exception as e:
                 print(f"[HeadLink] Write failed: {e}")
                 self.drop_serial()
@@ -110,9 +127,14 @@ class Service:
 
     def serial_loop(self):
         import serial
+        last_warn = 0.0
         while True:
             port = find_port(self.cfg["serial_port"])
             if not port:
+                if time.monotonic() - last_warn > 15:
+                    last_warn = time.monotonic()
+                    print(f"[HeadLink] Waiting for the ESP32 (an Espressif USB device, VID {ESPRESSIF_VID:04X}"
+                          f" - the S3's native USB port). Ports seen: {describe_ports()}")
                 time.sleep(2)
                 continue
             try:
@@ -128,6 +150,7 @@ class Service:
                 time.sleep(2)
                 continue
             print(f"[HeadLink] ESP32 connected on {port}")
+            last_status = 0.0
             with self.lock:
                 self.serial = ser
             self.send_device(self.core.on_connect())
@@ -147,9 +170,14 @@ class Service:
                     line, buf = buf.split(b"\n", 1)
                     msg = protocol.decode(line)
                     if msg is None:
+                        if self.verbose and line.strip():
+                            print(f"[HeadLink] <- ESP32  (not JSON) {line[:120]!r}")
                         continue
                     if msg.get("t") == "EVENT":
                         print(f"[HeadLink] ESP32 event: {msg.get('what')}")
+                    elif self.verbose and msg.get("t") == "STATUS" and time.monotonic() - last_status > 5:
+                        last_status = time.monotonic()          # STATUS comes twice a second
+                        print(f"[HeadLink] <- ESP32  {msg}")
                     back, out = self.core.from_device(msg)
                     self.send_device(back)
                     self.broadcast(out)
@@ -171,6 +199,8 @@ class Service:
 
     def client_loop(self, conn: socket.socket):
         self.clients.append(conn)
+        peer = conn.getpeername()
+        print(f"[HeadLink] Client connected {peer[0]}:{peer[1]}")
         buf = b""
         try:
             while True:
@@ -181,14 +211,19 @@ class Service:
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
                     msg = protocol.decode(line)
-                    if msg is not None:
-                        self.send_device(self.core.from_client(msg))
+                    if msg is None:
+                        print(f"[HeadLink] Client sent something that isn't a message: {line[:120]!r}")
+                        continue
+                    if self.verbose:
+                        print(f"[HeadLink] <- client {msg}")
+                    self.send_device(self.core.from_client(msg))
         except OSError:
             pass
         finally:
             if conn in self.clients:
                 self.clients.remove(conn)
             conn.close()
+            print(f"[HeadLink] Client disconnected {peer[0]}:{peer[1]}")
 
     def serve(self):
         threading.Thread(target=self.serial_loop, daemon=True).start()
@@ -204,8 +239,11 @@ class Service:
 
 
 def main():
+    ap = argparse.ArgumentParser(description="piper-watch head link service")
+    ap.add_argument("-v", "--verbose", action="store_true", help="print every message to and from the ESP32")
+    args = ap.parse_args()
     try:
-        Service(CONFIG["head"]).serve()
+        Service(CONFIG["head"], verbose=args.verbose).serve()
     except KeyboardInterrupt:
         pass
 
