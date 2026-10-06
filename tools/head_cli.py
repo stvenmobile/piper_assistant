@@ -13,6 +13,7 @@ import argparse
 import os
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -76,15 +77,54 @@ def demo_steps():
     return steps
 
 
-def demo(s, brightness: int):
+def current_brightness(s, wait: float = 0.5) -> int | None:
+    """The max_brightness the head link last passed on (it sends its remembered CONFIG to each
+    new client), or None if nobody has set one since the link started."""
+    s.settimeout(wait)
+    buf = b""
+    end = time.monotonic() + wait
+    try:
+        while time.monotonic() < end:
+            buf += s.recv(4096)
+            for line in buf.split(b"\n"):
+                msg = protocol.decode(line)
+                if msg and msg.get("t") == "CONFIG" and "max_brightness" in msg:
+                    return int(msg["max_brightness"])
+    except (socket.timeout, OSError):
+        pass
+    finally:
+        s.settimeout(None)
+    return None
+
+
+def drain(s):
+    """Read and discard what the link sends (STATUS twice a second), so it never backs up."""
+    def run():
+        try:
+            while s.recv(4096):
+                pass
+        except OSError:
+            pass
+    threading.Thread(target=run, daemon=True).start()
+
+
+def demo(s, brightness: int | None):
     """Step through the states and moods by hand."""
     def send(msg):
         s.sendall(protocol.encode(msg))
 
+    if brightness is None:
+        brightness = current_brightness(s)
+        if brightness is None:
+            brightness = 64
+            print("(brightness: nobody has set one since the link started - assuming the firmware's 64)")
+    else:
+        send(protocol.config(max_brightness=brightness))
+    drain(s)
+
     steps = demo_steps()
     sweep = list(range(-90, 91, 10)) + list(range(90, -91, -10))
     print("n = next   p = previous   + / - = brightness   q = quit\n")
-    send(protocol.config(max_brightness=brightness))
     i, shown = 0, None
     with Keys() as keys:
         while True:
@@ -130,7 +170,8 @@ def main():
     c.add_argument("--ring-offset", type=float)
     sub.add_parser("watch")
     d = sub.add_parser("demo")
-    d.add_argument("--brightness", type=int, default=64, help="starting max_brightness (0-255)")
+    d.add_argument("--brightness", type=int,
+                   help="set max_brightness (0-255) first; default: keep whatever is set now")
     a = ap.parse_args()
 
     s = connect()

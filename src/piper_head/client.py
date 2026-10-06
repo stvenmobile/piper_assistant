@@ -5,6 +5,7 @@ Never blocks the conversation and never raises: if the link service isn't runnin
 are dropped and it quietly tries to reconnect (at most every couple of seconds).
 """
 import socket
+import threading
 import time
 
 from piper_brain.config import CONFIG
@@ -30,11 +31,25 @@ class HeadClient:
         try:
             self.sock = socket.create_connection((self.host, self.port), timeout=0.3)
             self.sock.settimeout(0.3)
+            threading.Thread(target=self._drain, args=(self.sock,), daemon=True).start()
             return True
         except OSError:
             self.sock = None
             self.next_try = time.monotonic() + self.RETRY_S
             return False
+
+    @staticmethod
+    def _drain(sock):
+        """Read and discard what the link sends (STATUS twice a second): a client that never
+        reads fills its socket buffer, and the link then drops it."""
+        while True:
+            try:
+                if not sock.recv(4096):
+                    return
+            except socket.timeout:
+                continue
+            except OSError:
+                return
 
     def send(self, msg: dict) -> bool:
         if not self._connect():

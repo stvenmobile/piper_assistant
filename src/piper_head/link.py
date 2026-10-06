@@ -193,14 +193,36 @@ class Service:
         data = b"".join(protocol.encode(m) for m in msgs)
         for c in list(self.clients):
             try:
+                # non-blocking: a client that isn't reading (buffer full) is dropped, not waited on
+                c.setblocking(False)
                 c.sendall(data)
             except Exception:
-                self.clients.remove(c)
+                if c in self.clients:
+                    self.clients.remove(c)
+                print("[HeadLink] Dropped a client that stopped reading")
+                try:
+                    c.close()
+                except OSError:
+                    pass
+            finally:
+                try:
+                    c.setblocking(True)
+                except OSError:
+                    pass
 
     def client_loop(self, conn: socket.socket):
-        self.clients.append(conn)
+        # a client that stops reading must not stall the link: give up on a send after 1 s
+        conn.settimeout(1.0)
         peer = conn.getpeername()
         print(f"[HeadLink] Client connected {peer[0]}:{peer[1]}")
+        # tell the newcomer the current settings (e.g. the brightness someone set earlier)
+        if "CONFIG" in self.core.last:
+            try:
+                conn.sendall(protocol.encode(self.core.last["CONFIG"]))
+            except OSError:
+                pass
+        self.clients.append(conn)
+        conn.settimeout(None)
         buf = b""
         try:
             while True:
