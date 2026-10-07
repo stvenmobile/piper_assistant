@@ -270,6 +270,17 @@ class MemoryStore:
                 self.findings_index.add(fid, vector)
         return fid
 
+    def add_finding_source(self, finding_id: int, source_id: int, excerpt: str = "") -> bool:
+        """Another source for an existing finding (a second page saying the same thing).
+        Returns False if that source was already recorded for it."""
+        with self.lock, self._write():
+            return self.db.execute("INSERT OR IGNORE INTO finding_sources (finding_id, source_id, excerpt)"
+                                   " VALUES (?, ?, ?)", (finding_id, source_id, excerpt)).rowcount > 0
+
+    def finding_source_ids(self, finding_id: int) -> set[int]:
+        return {r[0] for r in self.db.execute("SELECT source_id FROM finding_sources WHERE finding_id = ?",
+                                              (finding_id,))}
+
     def _tag(self, finding_id: int, tag: str):
         self.db.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag.strip(),))
         tid = self.db.execute("SELECT id FROM tags WHERE name = ?", (tag.strip(),)).fetchone()["id"]
@@ -330,17 +341,22 @@ class MemoryStore:
 
     # ---- similarity ---------------------------------------------------------------------------
     def similar(self, text_or_vector, k: int = 5, min_score: float = 0.0, topic_id: int | None = None,
-                other_topics_than: int | None = None, exclude: tuple = ()) -> list[dict]:
-        """Findings most similar to a text (or a vector): [{...finding, "score"}], best first."""
+                other_topics_than: int | None = None, exclude: tuple = (), questions: bool | None = None) -> list[dict]:
+        """Findings most similar to a text (or a vector): [{...finding, "score"}], best first.
+        questions: None = any finding, False = no open questions, True = only questions."""
         vector = self._embed(text_or_vector) if isinstance(text_or_vector, str) else text_or_vector
         if vector is None:
             return []
-        topic_of = {}
-        if topic_id is not None or other_topics_than is not None:
-            topic_of = {r["id"]: r["topic_id"] for r in self.db.execute("SELECT id, topic_id FROM findings")}
+        topic_of, is_q = {}, {}
+        if topic_id is not None or other_topics_than is not None or questions is not None:
+            for r in self.db.execute("SELECT id, topic_id, kind FROM findings"):
+                topic_of[r["id"]] = r["topic_id"]
+                is_q[r["id"]] = r["kind"] == "question"
 
         def allow(fid):
             if fid in exclude:
+                return False
+            if questions is not None and is_q.get(fid) != questions:
                 return False
             if topic_id is not None and topic_of.get(fid) != topic_id:
                 return False
@@ -351,9 +367,10 @@ class MemoryStore:
         return [{**self.get_finding(fid), "score": s}
                 for fid, s in self.findings_index.search(vector, k, min_score, allow)]
 
-    def duplicate_of(self, text: str, topic_id: int | None = None) -> dict | None:
-        """An existing finding that says the same thing (similarity >= finding_duplicate), if any."""
-        hits = self.similar(text, k=1, min_score=self.finding_duplicate, topic_id=topic_id)
+    def duplicate_of(self, text: str, topic_id: int | None = None, questions: bool | None = None) -> dict | None:
+        """An existing finding that says the same thing (similarity >= finding_duplicate), if any.
+        questions: as for similar() - a claim is compared with claims, a question with questions."""
+        hits = self.similar(text, k=1, min_score=self.finding_duplicate, topic_id=topic_id, questions=questions)
         return hits[0] if hits else None
 
     def finding_vector(self, finding_id: int) -> np.ndarray | None:
@@ -362,14 +379,15 @@ class MemoryStore:
 
     def cross_topic_candidates(self, finding_id: int, k: int = 5, min_score: float | None = None) -> list[dict]:
         """Findings in OTHER topics that are semantically close to this one but share no concept
-        with it in the graph - candidate surprising links (for the LLM to judge, then flag)."""
+        with it in the graph - candidate surprising links (for the LLM to judge, then flag).
+        Open questions are left out on both sides: a link is between things learned."""
         vector = self.finding_vector(finding_id)
         f = self.get_finding(finding_id)
         if vector is None or f is None:
             return []
         mine = self.finding_concepts(finding_id)
         hits = self.similar(vector, k=k * 3, min_score=self.cross_topic if min_score is None else min_score,
-                            other_topics_than=f["topic_id"], exclude=(finding_id,))
+                            other_topics_than=f["topic_id"], exclude=(finding_id,), questions=False)
         return [h for h in hits if not (mine & self.finding_concepts(h["id"]))][:k]
 
     # ---- concepts + relations (the knowledge graph) -------------------------------------------

@@ -97,6 +97,8 @@ piper_assistant/
 │   ├── main.py              the runtime: state machine and conversation loop
 │   ├── piper_audio/         listener (Whisper), Kokoro and Piper speakers, devices.py
 │   ├── piper_brain/         config, supervisor, quick responder, tools, state, journal
+│   ├── piper_memory/        research memory: SQLite store, embeddings, concept graph, seeds
+│   ├── piper_research/      the research loop and its scheduler (section 5.5)
 │   ├── piper_geometry/      research: residual-stream extraction (continues in curious-george)
 │   └── piper_tools/         research: Obsidian vault and reading-dashboard builders
 ├── tests/                   unit tests (pytest)
@@ -157,7 +159,33 @@ python3 src/main.py
 
 Type `q` and Enter to stop cleanly, or say "shut down".
 
-### 5.5 Tests
+### 5.5 Research
+
+In its scheduled hours (`research.windows`, default `01:00-08:00` local time) Piper researches
+the topics in her memory (`piper_memory`). Each cycle she:
+- picks a topic, favouring stale, thin and evenly-argued ones;
+- picks or writes a question;
+- reads Wikipedia and keeps the passages closest to the question;
+- has the research model (`research.model`, default `qwen3:14b` on the PC's Ollama) extract findings.
+
+A finding is kept only if its supporting quote really appears in the page. It is stored with
+the page's permanent link (by revision), its stance toward the topic's thesis, and its links in
+the concept graph. Every few cycles she reflects: where the evidence stands, plus remarks to
+say aloud. When the window closes she writes an overnight summary.
+
+`start_piper.sh` starts the service. To load topics and try it by hand:
+
+```bash
+cp research_seeds.example.yaml research_seeds.yaml      # then write your own topics
+cd src && python3 -m piper_memory.seeds && cd ..
+python3 src/piper_research/service.py --now --once      # one cycle now, whatever the time
+python3 src/piper_research/service.py --now --cycles 5 --topic "How migrating birds navigate"
+```
+
+To change the hours, set `research.windows` in `config.yaml` (several windows are allowed, and
+a window may cross midnight) or set `PIPER_RESEARCH_WINDOWS="01:00-08:00,13:00-14:00"`.
+
+### 5.6 Tests
 
 The unit tests need no audio hardware, GPU or models, so they run on any machine:
 

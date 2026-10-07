@@ -57,5 +57,14 @@ if [[ "${VISION_ENABLED}" == "True" ]]; then
     echo "[Vision] Service started (pid ${VISION_PID})"
 fi
 
-# 6. Run (Ctrl+C, or type q + Enter, to stop)
+# 6. Research (in its scheduled hours - research.windows, default 01:00-08:00), also in the background
+RESEARCH_ENABLED="$(python3 -c 'import sys; sys.path.insert(0, "src"); from piper_brain.config import CONFIG; print(CONFIG["research"]["enabled"])' 2>/dev/null || echo False)"
+if [[ "${RESEARCH_ENABLED}" == "True" ]]; then
+    python3 src/piper_research/service.py &
+    RESEARCH_PID=$!
+    trap 'kill ${HEAD_PID:-} ${VISION_PID:-} ${RESEARCH_PID} 2>/dev/null || true' EXIT
+    echo "[Research] Service started (pid ${RESEARCH_PID})"
+fi
+
+# 7. Run (Ctrl+C, or type q + Enter, to stop)
 python3 src/main.py "$@"

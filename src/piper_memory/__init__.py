@@ -8,11 +8,12 @@ from piper_memory.schema import FINDING_KINDS, FINDING_STATUS, RELATIONS, SOURCE
 from piper_memory.store import MemoryStore
 
 
-def open_memory(readonly: bool = False) -> MemoryStore:
-    """The memory store as configured (config.yaml `memory` section), embedding via Ollama."""
+def open_memory(readonly: bool = False, path=None) -> MemoryStore:
+    """The memory store as configured (config.yaml `memory` section), embedding via Ollama.
+    path: another database file (e.g. a scratch copy for trying things out)."""
     from piper_brain.config import CONFIG, ROOT_DIR
     cfg = CONFIG["memory"]
-    path = ROOT_DIR / cfg["path"]
+    path = path or ROOT_DIR / cfg["path"]
     embedder = OllamaEmbedder(cfg["embed_url"] or CONFIG["llm"]["base_url"], cfg["embed_model"])
     return MemoryStore(path, embedder, readonly=readonly, concept_merge=cfg["concept_merge"],
                        finding_duplicate=cfg["finding_duplicate"], related=cfg["related"],

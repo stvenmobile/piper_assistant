@@ -96,6 +96,26 @@ DEFAULTS: dict = {
         "related": 0.80,                  # closely related findings
         "cross_topic": 0.68,              # cross-topic pairs above this are link candidates
     },
+    "research": {                         # piper_research: the research loop (a background service)
+        "enabled": True,
+        "windows": ["01:00-08:00"],       # local time, when research runs; several allowed; a window
+                                          #   may cross midnight ("22:00-06:00"). Env: "01:00-08:00,13:00-14:00"
+        "days": "daily",                  # or a list: ["mon", "tue", ...] (the day a window starts on)
+        "url": None,                      # Ollama for the reasoning model; None = llm.base_url (the PC)
+        "model": "qwen3:14b",             # research only - conversation keeps llm.model
+        "think": False,                   # qwen3's thinking mode: better reasoning, several times slower
+        "temperature": 0.3,
+        "num_ctx": 8192,                  # context window (tokens): 8192 keeps qwen3:14b all on the 12 GB
+                                          #   GPU (45 tok/s); 12288 spills to the CPU (12 tok/s)
+        "keep_alive": "30m",
+        "pages_per_question": 3,          # Wikipedia pages read per question
+        "passages": 8,                    # best passages (by similarity to the question) given to the model
+        "passage_chars": 1200,
+        "max_findings": 8,                # per cycle
+        "reflect_every": 3,               # cycles on a topic between reflections (position + remarks)
+        "cross_topic_checks": 3,          # new findings per cycle checked for links to other topics
+        "pause_s": 20,                    # between cycles
+    },
     "weather": {
         "location": "Matthews,NC",
         "cache_minutes": 10,
@@ -107,6 +127,8 @@ ENV_OVERRIDES = {
     "PIPER_OLLAMA_URL": ("llm", "base_url"),
     "PIPER_LLM_MODEL": ("llm", "model"),
     "PIPER_VOICE_MODEL": ("audio", "voice_model"),
+    "PIPER_RESEARCH_WINDOWS": ("research", "windows"),
+    "PIPER_RESEARCH_MODEL": ("research", "model"),
 }
 
 
