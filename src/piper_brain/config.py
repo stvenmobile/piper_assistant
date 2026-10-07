@@ -24,7 +24,8 @@ DEFAULTS: dict = {
         "name": "Piper",
         "engaged_timeout_seconds": 20.0,
         "max_conversation_turns": 8,
-        "require_known_person": True,     # with vision: only help people Piper knows by name
+        "require_known_person": False,    # with vision: only help people Piper knows by name (the
+                                          #   meet-a-person skill) - off while research has priority
         "welcome_back_minutes": 10,       # don't re-greet someone who was here this recently
     },
     "llm": {
