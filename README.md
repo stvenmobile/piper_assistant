@@ -161,7 +161,7 @@ Type `q` and Enter to stop cleanly, or say "shut down".
 
 ### 5.5 Research
 
-In its scheduled hours (`research.windows`, default `01:00-08:00` local time) Piper researches
+In its scheduled hours (`research.windows`, default `20:00-08:00` local time) Piper researches
 the topics in her memory (`piper_memory`). Each cycle she:
 - picks a topic, favouring stale, thin and evenly-argued ones;
 - picks or writes a question;

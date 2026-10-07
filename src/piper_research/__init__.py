@@ -1,6 +1,6 @@
 """
 piper_research - Piper's research loop: in the scheduled hours (research.windows, default
-01:00-08:00) she picks a topic from her memory, asks a question, reads Wikipedia, and stores
+20:00-08:00) she picks a topic from her memory, asks a question, reads Wikipedia, and stores
 verified findings with their sources (piper_memory). See loop.py for one cycle, service.py for
 the scheduler.
 """
