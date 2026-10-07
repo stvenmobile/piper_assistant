@@ -63,3 +63,6 @@ obsidian/
 faces/
 profiles/*
 !profiles/steve.md
+
+# Personal research seeds (the example file is committed)
+research_seeds.yaml

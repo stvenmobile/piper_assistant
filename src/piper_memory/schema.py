@@ -2,11 +2,13 @@
 Piper's memory - the SQLite schema (the source of truth; the Obsidian vault and the dashboard
 are views of it).
 
-    topics      the hierarchy + agenda: what Piper studies, with her curiosity scores
+    topics      the hierarchy + agenda: what Piper studies, with her curiosity scores, and an
+                optional THESIS - a position to examine (map who argues what, not to confirm)
     episodes    the research diary: one row per research cycle on a topic
     sources     where things were learned (wikipedia | web | llm | user), de-duplicated by `ref`
     findings    single claims (fact | pattern | quantity | question), each with its topic, the
-                episode that produced it, a confidence, and how it relates to what was already
+                episode that produced it, a confidence, its STANCE toward the topic's thesis
+                (supports | challenges | neutral), and how it relates to what was already
                 known (new | confirms | refines | contradicts -> relates_to); embedded
     finding_sources   finding <-> source, with the supporting excerpt        (PROVENANCE)
     concepts    the knowledge graph's nodes, with aliases; embedded
@@ -20,7 +22,13 @@ are views of it).
 Times are ISO-8601 UTC strings. JSON columns hold flexible extras.
 """
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2              # v2: topics.thesis, findings.stance
+
+# upgrades from each older version (applied in order by MemoryStore)
+MIGRATIONS = {
+    2: ["ALTER TABLE topics ADD COLUMN thesis TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE findings ADD COLUMN stance TEXT NOT NULL DEFAULT 'neutral'"],
+}
 
 # relation types - a small fixed vocabulary, so the graph stays queryable
 RELATIONS = (
@@ -42,6 +50,7 @@ RELATIONS = (
 
 FINDING_KINDS = ("fact", "pattern", "quantity", "question")
 FINDING_STATUS = ("new", "confirms", "refines", "contradicts")
+STANCES = ("supports", "challenges", "neutral")          # toward the topic's thesis
 SOURCE_KINDS = ("wikipedia", "web", "llm", "user")
 TOPIC_STATUS = ("queued", "active", "resting", "retired")
 
@@ -51,7 +60,8 @@ CREATE TABLE IF NOT EXISTS topics (
     name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
     parent_id   INTEGER REFERENCES topics(id),
     description TEXT NOT NULL DEFAULT '',
-    origin      TEXT NOT NULL DEFAULT 'seed',      -- seed | user | spawned | surprise
+    thesis      TEXT NOT NULL DEFAULT '',          -- a position to examine ('' = open exploration)
+    origin      TEXT NOT NULL DEFAULT 'seed',      -- seed | user | spawned | surprise | calibration
     status      TEXT NOT NULL DEFAULT 'queued',    -- queued | active | resting | retired
     novelty     REAL,                              -- curiosity scores, 0..1 (set by the loop)
     progress    REAL,
@@ -90,6 +100,7 @@ CREATE TABLE IF NOT EXISTS findings (
     episode_id  INTEGER REFERENCES episodes(id),
     confidence  REAL NOT NULL DEFAULT 0.5,
     status      TEXT NOT NULL DEFAULT 'new',       -- new | confirms | refines | contradicts
+    stance      TEXT NOT NULL DEFAULT 'neutral',   -- supports | challenges | neutral (toward the thesis)
     relates_to  INTEGER REFERENCES findings(id),   -- the finding it confirms / refines / contradicts
     created_at  TEXT NOT NULL,
     embedding   BLOB                               -- float32, unit length (NULL if not embedded yet)

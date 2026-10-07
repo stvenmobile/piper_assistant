@@ -1,0 +1,23 @@
+# Example research seeds. Copy to research_seeds.yaml (git-ignored) and write your own.
+# Load / reload:   cd src && python3 -m piper_memory.seeds
+#
+#   name     the topic (matched case-insensitively on reload)
+#   thesis   optional: a position to EXAMINE - findings record their stance toward it
+#            (supports / challenges / neutral); leave it out for open exploration
+#   parent   optional: another topic's name (listed earlier)
+#   origin   seed (default) | calibration (a topic with known answers, to check the loop)
+#   angles   starter questions - stored as open questions Piper works from
+
+topics:
+  - name: Why humans make art
+    thesis: >
+      Every advanced civilisation treats making art as a basic need; the subjects of art through
+      history may explain why.
+    angles:
+      - What is the oldest known art, and what does it depict?
+      - What theories explain the origin of art?
+
+  - name: How migrating birds navigate
+    origin: calibration
+    angles:
+      - Which cues do migrating birds use?

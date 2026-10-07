@@ -262,7 +262,76 @@ def test_readonly_reader_sees_writes_but_cannot_write(tmp_path):
 
 
 def test_schema_version_is_recorded(mem):
-    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == 1
+    from piper_memory.schema import SCHEMA_VERSION
+    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 2
+
+
+def test_a_v1_store_is_upgraded_in_place(tmp_path):
+    # a minimal v1 database: no topics.thesis, no findings.stance
+    path = tmp_path / "old.db"
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE topics (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            parent_id INTEGER, description TEXT NOT NULL DEFAULT '', origin TEXT NOT NULL DEFAULT 'seed',
+            status TEXT NOT NULL DEFAULT 'queued', novelty REAL, progress REAL, saturation REAL,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE findings (id INTEGER PRIMARY KEY, text TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'fact',
+            topic_id INTEGER NOT NULL, episode_id INTEGER, confidence REAL NOT NULL DEFAULT 0.5,
+            status TEXT NOT NULL DEFAULT 'new', relates_to INTEGER, created_at TEXT NOT NULL, embedding BLOB);
+        INSERT INTO topics (name, created_at, updated_at) VALUES ('Tides', 'x', 'x');
+        INSERT INTO findings (text, topic_id, created_at) VALUES ('the moon pulls the ocean', 1, 'x');
+        PRAGMA user_version = 1;
+    """)
+    db.close()
+    mem = MemoryStore(path, None)
+    assert mem.get_topic(1)["thesis"] == "" and mem.get_finding(1)["stance"] == "neutral"
+    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == 2
+    mem.add_finding("spring tides", 1, stance="supports")            # v2 columns usable
+
+
+def test_stance_toward_a_thesis_and_the_balance(mem):
+    t = mem.topic("Knowing we will die", thesis="Animals are unaware of their mortality.")
+    assert mem.get_topic(t)["thesis"].startswith("Animals")
+    mem.add_finding("Elephants revisit the bones of their dead.", t, stance="challenges", confidence=0.8)
+    mem.add_finding("Most insects show no response to dead conspecifics.", t, stance="supports", confidence=0.6)
+    mem.add_finding("Chimpanzees groom the bodies of dead group members.", t, stance="challenges", confidence=0.7)
+    mem.add_finding("What do corvids understand about death?", t, kind="question")   # not counted
+    b = mem.stance_balance(t)
+    assert b["challenges"] == {"count": 2, "weight": 1.5} and b["supports"]["count"] == 1
+    assert b["neutral"]["count"] == 0
+    with pytest.raises(ValueError):
+        mem.add_finding("x", t, stance="agrees")
+
+
+def test_seeds_load_topics_theses_and_questions_once(tmp_path):
+    from piper_memory.seeds import load_seeds
+    seeds = tmp_path / "seeds.yaml"
+    seeds.write_text("""
+topics:
+  - name: Consciousness as reception
+    thesis: >
+      Consciousness is received,
+      not produced.
+    angles:
+      - What are the filter theories?
+      - What does dream science say?
+  - name: Altered states
+    parent: Consciousness as reception
+    angles: ["What happens in meditation?"]
+  - name: How migrating birds navigate
+    origin: calibration
+""", encoding="utf-8")
+    mem = MemoryStore(tmp_path / "m.db", FakeEmbedder())
+    assert load_seeds(mem, seeds) == {"topics": 3, "questions_added": 3}
+    c = mem.topic("Consciousness as reception")
+    assert mem.get_topic(c)["thesis"] == "Consciousness is received, not produced."
+    assert mem.get_topic(mem.topic("Altered states"))["parent_id"] == c
+    assert mem.get_topic(mem.topic("How migrating birds navigate"))["origin"] == "calibration"
+    q = mem.findings(topic_id=c)
+    assert {f["kind"] for f in q} == {"question"}
+    assert mem.provenance(q[0]["id"])["sources"][0]["title"] == "research seeds"
+    assert load_seeds(mem, seeds) == {"topics": 3, "questions_added": 0}    # reload adds nothing
+    assert len(mem.topics()) == 3
 
 
 @pytest.mark.skipif(not os.environ.get("PIPER_TEST_OLLAMA"), reason="set PIPER_TEST_OLLAMA=<url> to test the real embedder")

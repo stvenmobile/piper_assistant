@@ -18,8 +18,8 @@ from pathlib import Path
 import numpy as np
 
 from piper_memory.embed import EmbedError, normalise
-from piper_memory.schema import (DDL, FINDING_KINDS, FINDING_STATUS, RELATIONS, SCHEMA_VERSION,
-                                 SOURCE_KINDS, TOPIC_STATUS)
+from piper_memory.schema import (DDL, FINDING_KINDS, FINDING_STATUS, MIGRATIONS, RELATIONS,
+                                 SCHEMA_VERSION, SOURCE_KINDS, STANCES, TOPIC_STATUS)
 
 
 def now() -> str:
@@ -118,7 +118,11 @@ class MemoryStore:
         if version > SCHEMA_VERSION:
             raise RuntimeError(f"{self.path} is schema v{version}; this code knows v{SCHEMA_VERSION}")
         with self.db:
-            self.db.executescript(DDL)
+            if version > 0:                         # an older store: upgrade it step by step
+                for v in range(version + 1, SCHEMA_VERSION + 1):
+                    for sql in MIGRATIONS.get(v, []):
+                        self.db.execute(sql)
+            self.db.executescript(DDL)              # new store: everything; old: any new tables
             self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def _load_indexes(self):
@@ -164,16 +168,19 @@ class MemoryStore:
         return [{"id": r["id"], "ts": r["ts"], "kind": r["kind"], **json.loads(r["data"])} for r in rows]
 
     # ---- topics -----------------------------------------------------------------------------
-    def topic(self, name: str, parent: int | None = None, description: str = "", origin: str = "seed") -> int:
-        """The id of topic `name` (case-insensitive), creating it if needed."""
+    def topic(self, name: str, parent: int | None = None, description: str = "", origin: str = "seed",
+              thesis: str = "") -> int:
+        """The id of topic `name` (case-insensitive), creating it if needed. thesis: a position
+        to examine - findings then record their stance toward it."""
         row = self.db.execute("SELECT id FROM topics WHERE name = ?", (name.strip(),)).fetchone()
         if row:
             return row["id"]
         with self.lock, self._write():
             t = now()
             return self.db.execute(
-                "INSERT INTO topics (name, parent_id, description, origin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (name.strip(), parent, description, origin, t, t)).lastrowid
+                "INSERT INTO topics (name, parent_id, description, thesis, origin, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (name.strip(), parent, description, thesis, origin, t, t)).lastrowid
 
     def get_topic(self, topic_id: int) -> dict | None:
         row = self.db.execute("SELECT * FROM topics WHERE id = ?", (topic_id,)).fetchone()
@@ -186,8 +193,8 @@ class MemoryStore:
         return [dict(r) for r in self.db.execute(sql + " ORDER BY id", args)]
 
     def update_topic(self, topic_id: int, **fields):
-        """Set status / description / novelty / progress / saturation / parent_id."""
-        allowed = {"status", "description", "novelty", "progress", "saturation", "parent_id"}
+        """Set status / description / thesis / novelty / progress / saturation / parent_id."""
+        allowed = {"status", "description", "thesis", "novelty", "progress", "saturation", "parent_id"}
         bad = set(fields) - allowed
         if bad:
             raise ValueError(f"can't update topic fields {bad}")
@@ -235,20 +242,24 @@ class MemoryStore:
     # ---- findings ---------------------------------------------------------------------------
     def add_finding(self, text: str, topic_id: int, episode_id: int | None = None, kind: str = "fact",
                     confidence: float = 0.5, status: str = "new", relates_to: int | None = None,
-                    sources: list | None = None, tags: list[str] | None = None) -> int:
-        """Store a finding. sources: [source_id, ...] or [(source_id, excerpt), ...]."""
+                    sources: list | None = None, tags: list[str] | None = None, stance: str = "neutral") -> int:
+        """Store a finding. sources: [source_id, ...] or [(source_id, excerpt), ...].
+        stance: toward the topic's thesis - supports | challenges | neutral."""
         if kind not in FINDING_KINDS:
             raise ValueError(f"finding kind must be one of {FINDING_KINDS}")
         if status not in FINDING_STATUS:
             raise ValueError(f"finding status must be one of {FINDING_STATUS}")
+        if stance not in STANCES:
+            raise ValueError(f"finding stance must be one of {STANCES}")
         if status != "new" and relates_to is None:
             raise ValueError(f"a '{status}' finding needs relates_to (the finding it {status})")
         vector = self._embed(text)
         with self.lock, self._write():
             fid = self.db.execute(
-                "INSERT INTO findings (text, kind, topic_id, episode_id, confidence, status, relates_to, created_at, embedding)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (text, kind, topic_id, episode_id, confidence, status, relates_to, now(), _blob(vector))).lastrowid
+                "INSERT INTO findings (text, kind, topic_id, episode_id, confidence, status, stance, relates_to,"
+                " created_at, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (text, kind, topic_id, episode_id, confidence, status, stance, relates_to, now(),
+                 _blob(vector))).lastrowid
             for s in sources or []:
                 sid, excerpt = (s, "") if isinstance(s, int) else s
                 self.db.execute("INSERT OR IGNORE INTO finding_sources (finding_id, source_id, excerpt) VALUES (?, ?, ?)",
@@ -284,6 +295,15 @@ class MemoryStore:
             sql += " WHERE " + " AND ".join(where)
         rows = self.db.execute(sql + " ORDER BY id DESC LIMIT ?", (*args, limit))
         return [self.get_finding(r["id"]) for r in rows]
+
+    def stance_balance(self, topic_id: int) -> dict:
+        """How the evidence on a topic stands toward its thesis: counts and confidence-weighted
+        totals of supporting / challenging / neutral findings (questions excluded)."""
+        out = {s: {"count": 0, "weight": 0.0} for s in STANCES}
+        for r in self.db.execute("SELECT stance, COUNT(*) AS n, SUM(confidence) AS w FROM findings"
+                                 " WHERE topic_id = ? AND kind != 'question' GROUP BY stance", (topic_id,)):
+            out[r["stance"]] = {"count": r["n"], "weight": round(r["w"] or 0.0, 3)}
+        return out
 
     def provenance(self, finding_id: int) -> dict:
         """Where a finding came from: its sources (+ excerpts), episode, topic, and what it relates to."""
