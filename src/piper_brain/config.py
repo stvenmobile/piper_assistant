@@ -83,6 +83,18 @@ DEFAULTS: dict = {
         "enroll_s": 8.0,                  # ... within this long
         "enroll_gap_s": 0.3,              # ... this far apart
     },
+    "memory": {                           # piper_memory: the research memory (SQLite + embeddings)
+        "path": "data/memory/piper_memory.db",   # relative to the repo root; data/ is git-ignored
+        "embed_model": "nomic-embed-text",       # served by Ollama
+        "embed_url": None,                # None = llm.base_url (the PC)
+        # similarity thresholds (cosine, nomic-embed-text "clustering:" prefix, calibrated 2026-10-07)
+        "concept_merge": 0.90,            # concept names this similar are put to a judge (LLM) to merge -
+                                          #   never merged on similarity alone ('predator population' ~
+                                          #   'prey population' is 0.95)
+        "finding_duplicate": 0.92,        # two findings this similar say the same thing
+        "related": 0.80,                  # closely related findings
+        "cross_topic": 0.68,              # cross-topic pairs above this are link candidates
+    },
     "weather": {
         "location": "Matthews,NC",
         "cache_minutes": 10,
