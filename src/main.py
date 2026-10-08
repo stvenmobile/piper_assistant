@@ -1,5 +1,10 @@
 """
 Piper Assistant: State-driven interactive runtime loop with LangGraph Supervisor.
+
+    python3 src/main.py            normal: listens for the wake word, greets people she sees
+    python3 src/main.py --quiet    do not disturb: the microphone is never opened and Piper
+                                   never speaks (also /quiet); research, vision and the head
+                                   still run. 'q' + Enter exits either way.
 """
 
 import sys
@@ -60,8 +65,32 @@ def keyboard_monitor(journal: ActivityJournal):
                 running = False
                 break
 
+def quiet_requested(argv: list[str]) -> bool:
+    return any(a.lower() in ("--quiet", "/quiet", "-q") for a in argv)
+
+
+def run_quiet():
+    """Do not disturb: no microphone, no speech - wait for 'q' (research runs separately)."""
+    global running
+    journal = ActivityJournal()
+    head.assistant_state("IDLE", "neutral")
+    print("--- Piper Assistant: QUIET mode (not listening, not speaking) ---")
+    journal.log("SYSTEM", "Piper started in quiet mode.", "Microphone closed; no speech.")
+    threading.Thread(target=keyboard_monitor, args=(journal,), daemon=True).start()
+    try:
+        while running:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    journal.log("SYSTEM", "Piper assistant (quiet mode) terminated.")
+    print("--- Shutting Down Piper Assistant ---")
+
+
 def main():
     global running
+    if quiet_requested(sys.argv[1:]):
+        run_quiet()
+        return
     print("--- Starting Piper Assistant ---")
     speaker = make_speaker()
     listener = PiperListener()

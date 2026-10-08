@@ -159,6 +159,10 @@ python3 src/main.py
 
 Type `q` and Enter to stop cleanly, or say "shut down".
 
+**Do not disturb:** `./start_quiet.sh` (or `./start_piper.sh --quiet`) starts everything except
+the conversation. The microphone is never opened and Piper never speaks, so calls nearby can't
+trigger her. Research, vision and the head run as usual, and `q` + Enter stops it.
+
 ### 5.5 Research
 
 In its scheduled hours (`research.windows`, default `20:00-08:00` local time) Piper researches

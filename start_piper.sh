@@ -2,6 +2,8 @@
 # ==============================================================================
 # Piper Assistant - start the voice runtime (src/main.py)
 #   ./start_piper.sh            normal start
+#   ./start_piper.sh --quiet    do not disturb: Piper doesn't listen or speak (research, vision and
+#                               the head still run) - same as ./start_quiet.sh
 # ==============================================================================
 set -eo pipefail
 
