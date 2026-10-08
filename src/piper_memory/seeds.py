@@ -4,13 +4,13 @@ the repo root - git-ignored, since it holds personal views; research_seeds.examp
 the format).
 
     topics:
-      - name: Knowing we will die
+      - name: Animal tool use
         thesis: >                          # optional: a position to examine, not to confirm
-          Most creatures seem unaware ...
+          Only primates truly make tools ...
         parent: Some other topic           # optional: by name, listed earlier
         origin: seed                       # seed (default) | calibration
         angles:                            # starter questions -> open 'question' findings
-          - What do elephants and corvids appear to understand about death?
+          - Which birds make tools, and how do they learn it?
 
     python3 -m piper_memory.seeds [path]   (from src/) - load into the configured memory
 

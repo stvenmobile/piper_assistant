@@ -26,10 +26,12 @@ class OllamaChat:
         self.tokens = 0
         self.seconds = 0.0
 
-    def json(self, system: str, user: str, schema: dict, retries: int = 1) -> dict:
-        """The model's reply to `user` (with instructions `system`), as a dict matching `schema`."""
+    def json(self, system: str, user: str, schema: dict, retries: int = 1, think: bool | None = None) -> dict:
+        """The model's reply to `user` (with instructions `system`), as a dict matching `schema`.
+        think: qwen3's thinking mode for this call (None = the default set at construction)."""
         body = {
-            "model": self.model, "stream": False, "think": self.think, "keep_alive": self.keep_alive,
+            "model": self.model, "stream": False, "think": self.think if think is None else think,
+            "keep_alive": self.keep_alive,
             "format": schema,
             "options": {"temperature": self.temperature, "num_ctx": self.num_ctx},
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],

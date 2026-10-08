@@ -263,7 +263,7 @@ def test_readonly_reader_sees_writes_but_cannot_write(tmp_path):
 
 def test_schema_version_is_recorded(mem):
     from piper_memory.schema import SCHEMA_VERSION
-    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 2
+    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 3
 
 
 def test_a_v1_store_is_upgraded_in_place(tmp_path):
@@ -284,18 +284,20 @@ def test_a_v1_store_is_upgraded_in_place(tmp_path):
     """)
     db.close()
     mem = MemoryStore(path, None)
-    assert mem.get_topic(1)["thesis"] == "" and mem.get_finding(1)["stance"] == "neutral"
-    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == 2
-    mem.add_finding("spring tides", 1, stance="supports")            # v2 columns usable
+    f = mem.get_finding(1)
+    assert mem.get_topic(1)["thesis"] == "" and f["stance"] == "neutral"
+    assert (f["relevance"], f["judged_by"]) == ("core", None)                    # v3 columns, defaults
+    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == 3
+    mem.add_finding("spring tides", 1, stance="supports", relevance="background")   # usable
 
 
 def test_stance_toward_a_thesis_and_the_balance(mem):
-    t = mem.topic("Knowing we will die", thesis="Animals are unaware of their mortality.")
-    assert mem.get_topic(t)["thesis"].startswith("Animals")
-    mem.add_finding("Elephants revisit the bones of their dead.", t, stance="challenges", confidence=0.8)
-    mem.add_finding("Most insects show no response to dead conspecifics.", t, stance="supports", confidence=0.6)
-    mem.add_finding("Chimpanzees groom the bodies of dead group members.", t, stance="challenges", confidence=0.7)
-    mem.add_finding("What do corvids understand about death?", t, kind="question")   # not counted
+    t = mem.topic("Animal tool use", thesis="Only primates truly make tools.")
+    assert mem.get_topic(t)["thesis"].startswith("Only")
+    mem.add_finding("New Caledonian crows bend wire into hooks.", t, stance="challenges", confidence=0.8)
+    mem.add_finding("Most mammals never modify objects to use them.", t, stance="supports", confidence=0.6)
+    mem.add_finding("Sea otters crack shells with stones they keep.", t, stance="challenges", confidence=0.7)
+    mem.add_finding("Which birds make tools?", t, kind="question")   # not counted
     b = mem.stance_balance(t)
     assert b["challenges"] == {"count": 2, "weight": 1.5} and b["supports"]["count"] == 1
     assert b["neutral"]["count"] == 0
@@ -303,29 +305,53 @@ def test_stance_toward_a_thesis_and_the_balance(mem):
         mem.add_finding("x", t, stance="agrees")
 
 
+def test_judging_a_finding_and_off_topic_ones_leave_the_balance(mem):
+    t = mem.topic("Animal tool use", thesis="Only primates truly make tools.")
+    a = mem.add_finding("New Caledonian crows bend wire into hooks.", t)
+    b = mem.add_finding("Crows have black feathers.", t, stance="supports")
+    mem.judge_finding(a, "challenges", "core", "a bird making a tool", "qwen3:14b")
+    mem.judge_finding(b, "neutral", "off_topic", "about anatomy", "qwen3:14b")
+    f = mem.get_finding(a)
+    assert (f["stance"], f["stance_reason"], f["judged_by"]) == ("challenges", "a bird making a tool", "qwen3:14b")
+    bal = mem.stance_balance(t)
+    assert bal["challenges"]["count"] == 1 and bal["neutral"]["count"] == 0
+    with pytest.raises(ValueError):
+        mem.judge_finding(a, "challenges", "somewhat")
+
+
+def test_deleting_a_finding_removes_it_from_search_and_similarity(mem):
+    t = mem.topic("Tides")
+    a = mem.add_finding("The moon pulls the ocean.", t)
+    b = mem.add_finding("Spring tides follow full moons.", t, status="refines", relates_to=a)
+    mem.delete_finding(a)
+    assert mem.get_finding(a) is None and mem.get_finding(b)["relates_to"] is None
+    assert all(h["id"] != a for h in mem.similar("The moon pulls the ocean.", k=5))
+    assert not mem.search("pulls")
+
+
 def test_seeds_load_topics_theses_and_questions_once(tmp_path):
     from piper_memory.seeds import load_seeds
     seeds = tmp_path / "seeds.yaml"
     seeds.write_text("""
 topics:
-  - name: Consciousness as reception
+  - name: Ocean tides
     thesis: >
-      Consciousness is received,
-      not produced.
+      The Moon's gravity is
+      the main cause of the tides.
     angles:
-      - What are the filter theories?
-      - What does dream science say?
-  - name: Altered states
-    parent: Consciousness as reception
-    angles: ["What happens in meditation?"]
+      - What role does the Sun play?
+      - Why are there two tides a day?
+  - name: Spring tides
+    parent: Ocean tides
+    angles: ["When do spring tides happen?"]
   - name: How migrating birds navigate
     origin: calibration
 """, encoding="utf-8")
     mem = MemoryStore(tmp_path / "m.db", FakeEmbedder())
     assert load_seeds(mem, seeds) == {"topics": 3, "questions_added": 3}
-    c = mem.topic("Consciousness as reception")
-    assert mem.get_topic(c)["thesis"] == "Consciousness is received, not produced."
-    assert mem.get_topic(mem.topic("Altered states"))["parent_id"] == c
+    c = mem.topic("Ocean tides")
+    assert mem.get_topic(c)["thesis"] == "The Moon's gravity is the main cause of the tides."
+    assert mem.get_topic(mem.topic("Spring tides"))["parent_id"] == c
     assert mem.get_topic(mem.topic("How migrating birds navigate"))["origin"] == "calibration"
     q = mem.findings(topic_id=c)
     assert {f["kind"] for f in q} == {"question"}

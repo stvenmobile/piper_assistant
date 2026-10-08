@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 
 from piper_memory.embed import EmbedError, normalise
-from piper_memory.schema import (DDL, FINDING_KINDS, FINDING_STATUS, MIGRATIONS, RELATIONS,
+from piper_memory.schema import (DDL, FINDING_KINDS, FINDING_STATUS, MIGRATIONS, RELATIONS, RELEVANCE,
                                  SCHEMA_VERSION, SOURCE_KINDS, STANCES, TOPIC_STATUS)
 
 
@@ -242,24 +242,28 @@ class MemoryStore:
     # ---- findings ---------------------------------------------------------------------------
     def add_finding(self, text: str, topic_id: int, episode_id: int | None = None, kind: str = "fact",
                     confidence: float = 0.5, status: str = "new", relates_to: int | None = None,
-                    sources: list | None = None, tags: list[str] | None = None, stance: str = "neutral") -> int:
+                    sources: list | None = None, tags: list[str] | None = None, stance: str = "neutral",
+                    relevance: str = "core", stance_reason: str = "", judged_by: str | None = None) -> int:
         """Store a finding. sources: [source_id, ...] or [(source_id, excerpt), ...].
-        stance: toward the topic's thesis - supports | challenges | neutral."""
+        stance: toward the topic's thesis - supports | challenges | neutral; relevance to the
+        topic - core | background | off_topic; judged_by: the model that judged those."""
         if kind not in FINDING_KINDS:
             raise ValueError(f"finding kind must be one of {FINDING_KINDS}")
         if status not in FINDING_STATUS:
             raise ValueError(f"finding status must be one of {FINDING_STATUS}")
         if stance not in STANCES:
             raise ValueError(f"finding stance must be one of {STANCES}")
+        if relevance not in RELEVANCE:
+            raise ValueError(f"finding relevance must be one of {RELEVANCE}")
         if status != "new" and relates_to is None:
             raise ValueError(f"a '{status}' finding needs relates_to (the finding it {status})")
         vector = self._embed(text)
         with self.lock, self._write():
             fid = self.db.execute(
-                "INSERT INTO findings (text, kind, topic_id, episode_id, confidence, status, stance, relates_to,"
-                " created_at, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (text, kind, topic_id, episode_id, confidence, status, stance, relates_to, now(),
-                 _blob(vector))).lastrowid
+                "INSERT INTO findings (text, kind, topic_id, episode_id, confidence, status, stance, relevance,"
+                " stance_reason, judged_by, relates_to, created_at, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (text, kind, topic_id, episode_id, confidence, status, stance, relevance, stance_reason, judged_by,
+                 relates_to, now(), _blob(vector))).lastrowid
             for s in sources or []:
                 sid, excerpt = (s, "") if isinstance(s, int) else s
                 self.db.execute("INSERT OR IGNORE INTO finding_sources (finding_id, source_id, excerpt) VALUES (?, ?, ?)",
@@ -269,6 +273,25 @@ class MemoryStore:
             if vector is not None:
                 self.findings_index.add(fid, vector)
         return fid
+
+    def judge_finding(self, finding_id: int, stance: str, relevance: str, reason: str = "", judged_by: str = ""):
+        """Record a (re-)judgement of a finding's stance and relevance."""
+        if stance not in STANCES or relevance not in RELEVANCE:
+            raise ValueError(f"stance must be one of {STANCES}, relevance one of {RELEVANCE}")
+        with self.lock, self._write():
+            self.db.execute("UPDATE findings SET stance = ?, relevance = ?, stance_reason = ?, judged_by = ? WHERE id = ?",
+                            (stance, relevance, reason, judged_by, finding_id))
+
+    def delete_finding(self, finding_id: int):
+        """Remove a finding (its sources, relations and tags go with it)."""
+        with self.lock, self._write():
+            self.db.execute("UPDATE findings SET relates_to = NULL WHERE relates_to = ?", (finding_id,))
+            self.db.execute("DELETE FROM findings WHERE id = ?", (finding_id,))
+        if finding_id in self.findings_index.ids:
+            i = self.findings_index.ids.index(finding_id)
+            del self.findings_index.ids[i]
+            self.findings_index.matrix = (None if not self.findings_index.ids else
+                                          np.delete(self.findings_index.matrix, i, axis=0))
 
     def add_finding_source(self, finding_id: int, source_id: int, excerpt: str = "") -> bool:
         """Another source for an existing finding (a second page saying the same thing).
@@ -309,10 +332,11 @@ class MemoryStore:
 
     def stance_balance(self, topic_id: int) -> dict:
         """How the evidence on a topic stands toward its thesis: counts and confidence-weighted
-        totals of supporting / challenging / neutral findings (questions excluded)."""
+        totals of supporting / challenging / neutral findings (questions and off-topic findings
+        excluded)."""
         out = {s: {"count": 0, "weight": 0.0} for s in STANCES}
-        for r in self.db.execute("SELECT stance, COUNT(*) AS n, SUM(confidence) AS w FROM findings"
-                                 " WHERE topic_id = ? AND kind != 'question' GROUP BY stance", (topic_id,)):
+        for r in self.db.execute("SELECT stance, COUNT(*) AS n, SUM(confidence) AS w FROM findings WHERE topic_id = ?"
+                                 " AND kind != 'question' AND relevance != 'off_topic' GROUP BY stance", (topic_id,)):
             out[r["stance"]] = {"count": r["n"], "weight": round(r["w"] or 0.0, 3)}
         return out
 

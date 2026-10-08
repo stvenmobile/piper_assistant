@@ -9,7 +9,9 @@ are views of it).
     findings    single claims (fact | pattern | quantity | question), each with its topic, the
                 episode that produced it, a confidence, its STANCE toward the topic's thesis
                 (supports | challenges | neutral), and how it relates to what was already
-                known (new | confirms | refines | contradicts -> relates_to); embedded
+                known (new | confirms | refines | contradicts -> relates_to); embedded.
+                A judge sets RELEVANCE (core | background | off_topic - off-topic findings are
+                kept but left out of the balance and reflection) and the stance's reason
     finding_sources   finding <-> source, with the supporting excerpt        (PROVENANCE)
     concepts    the knowledge graph's nodes, with aliases; embedded
     relations   subject concept -predicate-> object concept, each from a finding  (PROVENANCE)
@@ -22,12 +24,15 @@ are views of it).
 Times are ISO-8601 UTC strings. JSON columns hold flexible extras.
 """
 
-SCHEMA_VERSION = 2              # v2: topics.thesis, findings.stance
+SCHEMA_VERSION = 3              # v2: topics.thesis, findings.stance; v3: relevance, stance_reason, judged_by
 
 # upgrades from each older version (applied in order by MemoryStore)
 MIGRATIONS = {
     2: ["ALTER TABLE topics ADD COLUMN thesis TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE findings ADD COLUMN stance TEXT NOT NULL DEFAULT 'neutral'"],
+    3: ["ALTER TABLE findings ADD COLUMN relevance TEXT NOT NULL DEFAULT 'core'",
+        "ALTER TABLE findings ADD COLUMN stance_reason TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE findings ADD COLUMN judged_by TEXT"],
 }
 
 # relation types - a small fixed vocabulary, so the graph stays queryable
@@ -51,6 +56,8 @@ RELATIONS = (
 FINDING_KINDS = ("fact", "pattern", "quantity", "question")
 FINDING_STATUS = ("new", "confirms", "refines", "contradicts")
 STANCES = ("supports", "challenges", "neutral")          # toward the topic's thesis
+RELEVANCE = ("core", "background", "off_topic")          # to the topic
+CERTAINTY = {"established": 0.9, "reported": 0.6, "speculative": 0.3}   # -> findings.confidence
 SOURCE_KINDS = ("wikipedia", "web", "llm", "user")
 TOPIC_STATUS = ("queued", "active", "resting", "retired")
 
@@ -101,6 +108,9 @@ CREATE TABLE IF NOT EXISTS findings (
     confidence  REAL NOT NULL DEFAULT 0.5,
     status      TEXT NOT NULL DEFAULT 'new',       -- new | confirms | refines | contradicts
     stance      TEXT NOT NULL DEFAULT 'neutral',   -- supports | challenges | neutral (toward the thesis)
+    relevance   TEXT NOT NULL DEFAULT 'core',      -- core | background | off_topic (to the topic)
+    stance_reason TEXT NOT NULL DEFAULT '',        -- the judge's one-line reason
+    judged_by   TEXT,                              -- model that judged stance + relevance (NULL = not yet)
     relates_to  INTEGER REFERENCES findings(id),   -- the finding it confirms / refines / contradicts
     created_at  TEXT NOT NULL,
     embedding   BLOB                               -- float32, unit length (NULL if not embedded yet)

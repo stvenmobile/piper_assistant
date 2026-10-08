@@ -4,7 +4,8 @@ embedding-based similarity, provenance for every finding and relation, and an ac
 See schema.py for the structure and store.py for the interface.
 """
 from piper_memory.embed import EmbedError, OllamaEmbedder
-from piper_memory.schema import FINDING_KINDS, FINDING_STATUS, RELATIONS, SOURCE_KINDS, TOPIC_STATUS
+from piper_memory.schema import (CERTAINTY, FINDING_KINDS, FINDING_STATUS, RELATIONS, RELEVANCE, SOURCE_KINDS,
+                                 STANCES, TOPIC_STATUS)
 from piper_memory.store import MemoryStore
 
 

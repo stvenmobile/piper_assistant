@@ -166,11 +166,16 @@ the topics in her memory (`piper_memory`). Each cycle she:
 - picks a topic, favouring stale, thin and evenly-argued ones;
 - picks or writes a question;
 - reads Wikipedia and keeps the passages closest to the question;
-- has the research model (`research.model`, default `qwen3:14b` on the PC's Ollama) extract findings.
+- has the research model (`research.model`, default `qwen3:30b-a3b` on the PC's Ollama) extract findings.
 
-A finding is kept only if its supporting quote really appears in the page. It is stored with
-the page's permanent link (by revision), its stance toward the topic's thesis, and its links in
-the concept graph. Every few cycles she reflects: where the evidence stands, plus remarks to
+A finding is kept only if its supporting quote really appears in the page. A separate judge,
+with the model's thinking mode on, then rates each finding:
+- its **relevance** to the topic: core, background, or off-topic (dropped);
+- its **stance** toward the thesis: supports or challenges only if a proponent or critic would
+  cite it, otherwise neutral, with a one-line reason.
+
+The finding is stored with the page's permanent link (by revision), its certainty
+(established / reported / speculative), and its links in the concept graph. Every few cycles she reflects: where the evidence stands, plus remarks to
 say aloud. When the window closes she writes an overnight summary.
 
 `start_piper.sh` starts the service. To load topics and try it by hand:
@@ -181,6 +186,12 @@ cd src && python3 -m piper_memory.seeds && cd ..
 python3 src/piper_research/service.py --now --once      # one cycle now, whatever the time
 python3 src/piper_research/service.py --now --cycles 5 --topic "How migrating birds navigate"
 ```
+
+Two maintenance commands:
+- `--rejudge 500` runs the judge over findings stored before it existed. The service also does a
+  few after each cycle (`research.rejudge_per_cycle`).
+- `--tidy` prunes the open questions to `research.max_open_questions` per topic and marks the old
+  cross-topic flags as reviewed.
 
 To change the hours, set `research.windows` in `config.yaml` (several windows are allowed, and
 a window may cross midnight) or set `PIPER_RESEARCH_WINDOWS="01:00-08:00,13:00-14:00"`.

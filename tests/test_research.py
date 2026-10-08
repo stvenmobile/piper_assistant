@@ -12,7 +12,8 @@ from piper_research.wiki import passages
 from test_memory import FakeEmbedder
 
 CFG = {"pages_per_question": 2, "passages": 6, "passage_chars": 400, "max_findings": 8,
-       "reflect_every": 2, "cross_topic_checks": 2}
+       "reflect_every": 2, "cross_topic_checks": 2, "cross_topic_min": 0.0, "cross_links_per_window": 5,
+       "cross_links_per_pair": 2, "max_open_questions": 30, "judge_think": True}
 
 PAGE = {"title": "Bird migration", "revid": 111,
         "url": "https://en.wikipedia.org/w/index.php?title=Bird_migration&oldid=111",
@@ -108,12 +109,19 @@ class FakeLLM:
         self.same = False
         self.relation = "neither"
         self.link = False
+        self.judgement = {"relevance": "core", "stance": "neutral", "reason": "r"}
+        self.judge_by_claim = {}                    # claim text -> judgement
         self.asked = []
+        self.thinking = []
         self.calls = 0
 
-    def json(self, system, user, schema, retries=1):
+    def json(self, system, user, schema, retries=1, think=None):
         self.calls += 1
         self.asked.append(schema)
+        self.thinking.append((id(schema), think))
+        if schema is P.JUDGE_SCHEMA:
+            claim = user.split("Finding: ")[1].split("\n")[0]
+            return self.judge_by_claim.get(claim, self.judgement)
         if schema is P.QUESTION_SCHEMA:
             return {"open_question": 1, "question": "unused", "why": "", "search_queries": ["birds"]}
         if schema is P.EXTRACT_SCHEMA:
@@ -136,9 +144,9 @@ class FakeLLM:
         return {"llm_calls": self.calls, "llm_tokens": 0, "llm_seconds": 0.0}
 
 
-def finding(claim, quote, passage=2, stance="neutral", kind="fact", relations=()):
-    return {"claim": claim, "quote": quote, "passage": passage, "kind": kind, "confidence": 0.9,
-            "stance": stance, "relations": [dict(zip(("subject", "predicate", "object"), r)) for r in relations]}
+def finding(claim, quote, passage=2, kind="fact", certainty="established", relations=()):
+    return {"claim": claim, "quote": quote, "passage": passage, "kind": kind, "certainty": certainty,
+            "relations": [dict(zip(("subject", "predicate", "object"), r)) for r in relations]}
 
 
 @pytest.fixture
@@ -159,16 +167,20 @@ def test_cycle_keeps_verified_findings_with_provenance_and_rejects_invented_quot
         finding("Birds use a sun compass by day.", "Birds use a sun compass by day, compensating for the time of day",
                 relations=[("sun compass", "used_for", "navigation")]),
         finding("Many birds use a stellar compass centred on Polaris at night.",
-                "At night many species use a stellar compass centred on Polaris", stance="supports"),
+                "At night many species use a stellar compass centred on Polaris", certainty="reported"),
         finding("Birds smell their way home.", "Birds rely mostly on their sense of smell to find home"),
     ]
+    llm.judge_by_claim["Many birds use a stellar compass centred on Polaris at night."] = \
+        {"relevance": "core", "stance": "supports", "reason": "stars"}
     out = r.cycle()
     assert out["outcome"] == "progress"
     assert (out["new"], out["rejected"], out["relations"]) == (2, 1, 1)
     assert out["question"] == "Which cues do migrating birds use?"         # the open seed question ...
     assert r.open_questions(tid) == ["How do birds learn the stars?"]     # ... is now asked; follow-up added
     facts = [f for f in mem.findings(tid) if f["kind"] != "question"]
-    assert {f["stance"] for f in facts} == {"neutral", "supports"}
+    assert {(f["stance"], f["confidence"]) for f in facts} == {("neutral", 0.9), ("supports", 0.6)}
+    assert facts[0]["stance_reason"] == "stars" and facts[0]["judged_by"] == "fake"
+    assert (id(P.JUDGE_SCHEMA), True) in llm.thinking                   # the judge thinks
     p = mem.provenance(facts[0]["id"])
     assert p["sources"][0]["url"].endswith("oldid=111")
     assert p["sources"][0]["excerpt"].startswith("At night many species")
@@ -223,7 +235,7 @@ def test_reflection_every_n_cycles_writes_remarks_and_questions(world):
 
 def test_cross_topic_link_flagged_only_when_the_judge_agrees(world):
     mem, llm, r, tid = world
-    other = mem.topic("Quantum biology")
+    other = mem.topic("Sea turtle navigation")
     mem.add_finding("Robins use a stellar compass centred on Polaris at night", other)
     llm.extract = [finding("Many birds use a stellar compass centred on Polaris at night.",
                            "At night many species use a stellar compass centred on Polaris")]
@@ -251,7 +263,7 @@ def test_concepts_merge_only_when_the_judge_says_same(world):
 
 def test_choose_avoids_the_same_topic_twice_and_skips_retired(world):
     mem, llm, r, tid = world
-    other = mem.topic("Why humans make art")
+    other = mem.topic("Ocean tides")
     retired = mem.topic("Old topic")
     mem.update_topic(retired, status="retired")
     r.last_topic = tid
@@ -275,3 +287,68 @@ def test_overnight_summary_becomes_a_general_remark(world):
     r.cycle()
     assert r.overnight("2000-01-01T00:00:00+00:00") == "I spent the night with birds."
     assert [x["kind"] for x in mem.remarks(None)] == ["overnight"]
+
+
+def test_off_topic_findings_are_dropped_and_stance_is_neutral_without_a_thesis(world):
+    mem, llm, r, tid = world
+    llm.judge_by_claim["Birds use a sun compass by day."] = {"relevance": "off_topic", "stance": "supports", "reason": "x"}
+    llm.extract = [finding("Birds use a sun compass by day.", "Birds use a sun compass by day")]
+    out = r.cycle()
+    assert (out["new"], out["off_topic"]) == (0, 1)
+    plain = mem.topic("Open topic")
+    llm.judgement = {"relevance": "core", "stance": "supports", "reason": "x"}
+    assert r.judge(mem.get_topic(plain), "Anything at all.")["stance"] == "neutral"
+
+
+def test_concept_phrases_are_not_put_in_the_graph(world):
+    mem, llm, r, tid = world
+    llm.extract = [finding("Birds use a sun compass by day.", "Birds use a sun compass by day",
+                           relations=[("sun compass", "used_for", "navigation"),
+                                      ("the way birds determine their location", "depends_on", "sun")])]
+    assert r.cycle()["relations"] == 1
+
+
+def test_rejudge_old_findings(world):
+    mem, llm, r, tid = world
+    old = mem.add_finding("Birds use a sun compass by day.", tid, stance="supports")
+    assert r.unjudged() == 1
+    llm.judgement = {"relevance": "background", "stance": "neutral", "reason": "a cue, not the stars"}
+    assert r.rejudge(limit=10) == {"judged": 1, "off_topic": 0, "changed": 1}
+    f = mem.get_finding(old)
+    assert (f["stance"], f["relevance"], f["judged_by"]) == ("neutral", "background", "fake")
+    assert r.unjudged() == 0
+
+
+def test_open_questions_are_capped_and_pruned_keeping_seed_questions(world):
+    mem, llm, r, tid = world
+    r.cfg = {**CFG, "max_open_questions": 3}
+    src = mem.source("llm", "fake")
+    for i in range(5):
+        mem.add_finding(f"Question number {i} about birds?", tid, kind="question", sources=[src])
+    assert r.room_for_questions(tid) == 0
+    llm.extract = [finding("Birds use a sun compass by day.", "Birds use a sun compass by day")]
+    assert r.cycle()["follow_ups"] == 0                                  # no room
+    r.prune_questions(mem.get_topic(tid), keep=2)
+    assert len(r.open_questions(tid)) == 2
+
+
+def test_cross_links_stop_between_topics_already_linked_and_per_window(world):
+    mem, llm, r, tid = world
+    other = mem.topic("Sea turtle navigation")
+    llm.link = True
+    for i in range(3):
+        mem.add_finding(f"Robins use a stellar compass centred on Polaris at night {i}", other)
+    llm.extract = [finding("Many birds use a stellar compass centred on Polaris at night.",
+                           "At night many species use a stellar compass centred on Polaris"),
+                   finding("Birds use a sun compass by day.", "Birds use a sun compass by day")]
+    r.cfg = {**CFG, "cross_links_per_pair": 1}
+    r.cycle()
+    assert r.links_between(tid, other) == 1 and r.related_topics(tid, other)
+    child = mem.topic("Bird compasses", parent=tid)
+    assert r.related_topics(tid, child)
+    third = mem.topic("Art")
+    mem.add_finding("Cave painters drew the stellar compass of Polaris at night", third)
+    r.cross_links_left = 0
+    stats = {"cross_links": 0}
+    r.cross_links(tid, [f["id"] for f in mem.findings(tid) if f["kind"] != "question"], stats)
+    assert stats["cross_links"] == 0

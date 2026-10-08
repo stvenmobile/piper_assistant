@@ -9,10 +9,13 @@ The research loop - one cycle:
     EXTRACT      the model lists findings - claim, exact quote, kind, confidence, stance,
                  relations - plus a short answer and follow-up questions
     VERIFY       a finding is kept only if its quote is really in the passages; duplicates add a
-                 source to the existing finding instead; near matches are judged (confirms /
-                 refines / contradicts); contradictions are flagged
+                 source to the existing finding instead
+    JUDGE        each new finding, one at a time (thinking on): relevance to the topic (off-topic
+                 ones are dropped) and stance toward the thesis, with a reason; near matches are
+                 judged (confirms / refines / contradicts); contradictions are flagged
     CONSOLIDATE  concepts and relations into the graph (similar names merged only if the model
                  judges them the same); a few new findings checked for links to other topics
+                 (a few a night, and not between topics already known to be linked)
     REFLECT      every few cycles on a topic: where the evidence stands, remarks to say aloud,
                  next questions
 
@@ -27,6 +30,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from piper_memory.embed import EmbedError, normalise
+from piper_memory.schema import CERTAINTY
 from piper_research import prompts as P
 from piper_research.llm import OllamaChat
 from piper_research.verify import find_quote, norm
@@ -56,6 +60,15 @@ class Researcher:
         self.same_cache: dict[tuple, bool] = {}
         self.cross_judged: set[tuple] = set()
         self.last_topic: int | None = None
+        self.cross_links_left = cfg.get("cross_links_per_window", 5)
+
+    def new_window(self):
+        """A research window has opened: reset the per-window budgets."""
+        self.cross_links_left = self.cfg.get("cross_links_per_window", 5)
+
+    @property
+    def judge_think(self) -> bool:
+        return self.cfg.get("judge_think", True)
 
     def _check(self):
         if self.should_stop():
@@ -111,11 +124,44 @@ class Researcher:
                                    (topic_id,))
         return [r[0] for r in rows if r[0].rstrip().endswith("?") and norm(r[0]) not in asked]
 
+    def ranked_open_questions(self, topic: dict, k: int = 10) -> list[str]:
+        """The open questions closest to what the topic is about (its name, description, thesis)."""
+        open_q = self.open_questions(topic["id"])
+        if len(open_q) <= k:
+            return open_q
+        about = " ".join(x for x in (topic["name"], topic["description"], topic["thesis"]) if x)
+        hits = self.mem.similar(about, k=len(open_q) + 50, topic_id=topic["id"], questions=True)
+        wanted = {norm(q) for q in open_q}
+        ranked = [h["text"] for h in hits if norm(h["text"]) in wanted]
+        return (ranked or open_q)[:k]
+
+    def room_for_questions(self, topic_id: int) -> int:
+        return max(0, self.cfg.get("max_open_questions", 30) - len(self.open_questions(topic_id)))
+
+    def prune_questions(self, topic: dict, keep: int | None = None) -> int:
+        """Delete the model's open questions beyond the `keep` most relevant (seed questions and
+        questions already asked stay). Returns how many were deleted."""
+        keep = self.cfg.get("max_open_questions", 30) if keep is None else keep
+        ranked = self.ranked_open_questions(topic, k=10_000)
+        drop = {norm(q) for q in ranked[keep:]}
+        n = 0
+        for row in self.mem.db.execute(
+                "SELECT f.id, f.text FROM findings f WHERE f.topic_id = ? AND f.kind = 'question' AND NOT EXISTS"
+                " (SELECT 1 FROM finding_sources fs JOIN sources s ON s.id = fs.source_id"
+                "  WHERE fs.finding_id = f.id AND s.kind = 'user')", (topic["id"],)).fetchall():
+            if norm(row["text"]) in drop:
+                self.mem.delete_finding(row["id"])
+                n += 1
+        if n:
+            self.mem.log("questions_pruned", topic_id=topic["id"], deleted=n)
+        return n
+
     def next_question(self, topic: dict) -> dict:
         tid = topic["id"]
-        open_q = self.open_questions(tid)[:10]
+        open_q = self.ranked_open_questions(topic)
         asked = [e["angle"] for e in self.mem.episodes(tid, limit=10) if e["angle"]]
-        known = [f["text"] for f in self.mem.findings(tid, limit=40) if f["kind"] != "question"][:12]
+        known = [f["text"] for f in self.mem.findings(tid, limit=60)
+                 if f["kind"] != "question" and f["relevance"] != "off_topic"][:12]
         bal = self.mem.stance_balance(tid)
         user = (f"Topic: {topic['name']}\n"
                 + (f"Description: {topic['description']}\n" if topic["description"] else "")
@@ -176,6 +222,46 @@ class Researcher:
             self.mem.log("concept_judged", a=a, b=b, same=self.same_cache[key])
         return self.same_cache[key]
 
+    def judge(self, topic: dict, claim: str, quote: str = "") -> dict:
+        """Relevance to the topic and stance toward its thesis, with a reason (thinking on)."""
+        user = (f"Topic: {topic['name']}\n"
+                + (f"Description: {topic['description']}\n" if topic["description"] else "")
+                + (f"Thesis: {topic['thesis']}\n" if topic["thesis"] else "Thesis: (none - stance is neutral)\n")
+                + f"\nFinding: {claim}\n" + (f'Source quote: "{quote}"\n' if quote else ""))
+        r = self.llm.json(P.JUDGE, user, P.JUDGE_SCHEMA, think=self.judge_think)
+        relevance = r.get("relevance") if r.get("relevance") in ("core", "background", "off_topic") else "core"
+        stance = r.get("stance") if (topic["thesis"] and r.get("stance") in ("supports", "challenges")) else "neutral"
+        return {"relevance": relevance, "stance": stance, "reason": " ".join(r.get("reason", "").split())}
+
+    def rejudge(self, limit: int = 50, topic_id: int | None = None) -> dict:
+        """Judge findings stored before the judge existed (judged_by IS NULL): those with a stance
+        first (the old stances were the unreliable part), then the rest, oldest first."""
+        sql = ("SELECT f.id, f.text, f.topic_id, f.stance, (SELECT excerpt FROM finding_sources fs"
+               " WHERE fs.finding_id = f.id LIMIT 1) AS quote FROM findings f"
+               " WHERE f.judged_by IS NULL AND f.kind != 'question'")
+        args = []
+        if topic_id is not None:
+            sql += " AND f.topic_id = ?"
+            args.append(topic_id)
+        rows = self.mem.db.execute(sql + " ORDER BY (f.stance = 'neutral'), f.id LIMIT ?", (*args, limit)).fetchall()
+        counts = {"judged": 0, "off_topic": 0, "changed": 0}
+        topics = {}
+        for row in rows:
+            self._check()
+            topic = topics.setdefault(row["topic_id"], self.mem.get_topic(row["topic_id"]))
+            j = self.judge(topic, row["text"], row["quote"] or "")
+            self.mem.judge_finding(row["id"], j["stance"], j["relevance"], j["reason"], self.llm.model)
+            counts["judged"] += 1
+            counts["off_topic"] += j["relevance"] == "off_topic"
+            counts["changed"] += j["stance"] != row["stance"]
+        if rows:
+            self.mem.log("rejudged", **counts)
+        return counts
+
+    def unjudged(self) -> int:
+        return self.mem.db.execute("SELECT COUNT(*) FROM findings WHERE judged_by IS NULL"
+                                   " AND kind != 'question'").fetchone()[0]
+
     def relate_to(self, claim: str, earlier: dict) -> str:
         r = self.llm.json(P.RELATE, f"EARLIER: {earlier['text']}\nNEW: {claim}", P.RELATE_SCHEMA)
         return r.get("relation", "neither")
@@ -198,7 +284,8 @@ class Researcher:
         self.say(f"[Research]   Q: {q['question']}")
         stats = {"question": q["question"], "pages": [], "extracted": 0, "rejected": 0, "new": 0,
                  "duplicates": 0, "extra_sources": 0, "confirms": 0, "refines": 0, "contradicts": 0,
-                 "relations": 0, "follow_ups": 0, "cross_links": 0}
+                 "relations": 0, "follow_ups": 0, "cross_links": 0, "off_topic": 0,
+                 "supports": 0, "challenges": 0, "neutral": 0}
         try:
             self._check()
             pages, chosen = self.read(q["question"], q["queries"])
@@ -274,6 +361,12 @@ class Researcher:
                 else:
                     stats["duplicates"] += 1
                 continue
+            j = self.judge(topic, claim, quote)
+            if j["relevance"] == "off_topic":
+                stats["off_topic"] += 1
+                self.mem.log("off_topic", episode=ep, claim=claim, reason=j["reason"])
+                continue
+            stats[j["stance"]] += 1
             status, relates_to = "new", None
             near = [] if is_q else self.mem.similar(claim, k=1, min_score=self.mem.related, topic_id=tid, questions=False)
             if near:
@@ -282,28 +375,31 @@ class Researcher:
                     status, relates_to = rel, near[0]["id"]
                     stats[rel] += 1
             kind = f.get("kind", "fact")
-            fid = self.mem.add_finding(claim, tid, ep, kind=kind, confidence=min(1.0, max(0.0, float(f.get("confidence", 0.5)))),
-                                       status=status, relates_to=relates_to, stance=f.get("stance", "neutral"),
-                                       sources=[(sid, quote)])
+            confidence = CERTAINTY.get(f.get("certainty"), 0.6)
+            fid = self.mem.add_finding(claim, tid, ep, kind=kind, confidence=confidence, status=status,
+                                       relates_to=relates_to, stance=j["stance"], relevance=j["relevance"],
+                                       stance_reason=j["reason"], judged_by=self.llm.model, sources=[(sid, quote)])
             stats["new"] += 1
             new_ids.append(fid)
-            self.mem.log("finding", episode=ep, finding=fid, text=claim, stance=f.get("stance"), status=status,
-                         source=page["title"])
+            self.mem.log("finding", episode=ep, finding=fid, text=claim, stance=j["stance"], relevance=j["relevance"],
+                         status=status, source=page["title"])
             if status == "contradicts":
                 self.mem.flag("contradiction", f"{claim}  <->  {near[0]['text']}", findings=[fid, relates_to], topics=[tid])
             for rel in f.get("relations") or []:
+                if max(len(rel.get("subject", "").split()), len(rel.get("object", "").split())) > 4:
+                    continue                        # a phrase, not a concept
                 try:
                     s = self.mem.concept(rel["subject"], judge=self.same_concept)
                     o = self.mem.concept(rel["object"], judge=self.same_concept)
                     if s != o:
-                        self.mem.relate(s, rel["predicate"], o, finding_id=fid, confidence=f.get("confidence", 0.5))
+                        self.mem.relate(s, rel["predicate"], o, finding_id=fid, confidence=confidence)
                         stats["relations"] += 1
                 except (KeyError, ValueError):
                     continue
         # follow-up questions become open questions on the topic
         llm_src = self.mem.source("llm", self.llm.model)
         known = {norm(t) for t in self.open_questions(tid)} | self.asked(tid)
-        for fq in (r.get("follow_up_questions") or [])[:3]:
+        for fq in (r.get("follow_up_questions") or [])[:min(3, self.room_for_questions(tid))]:
             fq = " ".join(fq.split())
             if fq.endswith("?") and norm(fq) not in known and not self.mem.duplicate_of(fq, topic_id=tid, questions=True):
                 self.mem.add_finding(fq, tid, ep, kind="question", confidence=1.0, sources=[llm_src])
@@ -312,18 +408,38 @@ class Researcher:
         return " ".join((r.get("answer") or "").split()), new_ids
 
     # ---- CONSOLIDATE: links between topics ----------------------------------------------------
+    def links_between(self, a: int, b: int) -> int:
+        """How many cross-topic links have ever been flagged between topics a and b."""
+        n = 0
+        for (refs,) in self.mem.db.execute("SELECT refs FROM notable WHERE kind = 'cross_topic'"):
+            if {a, b} <= set(json.loads(refs).get("topics", [])):
+                n += 1
+        return n
+
+    def related_topics(self, a: int, b: int) -> bool:
+        """Topics already known to be linked: parent and child, or links already flagged."""
+        ta, tb = self.mem.get_topic(a), self.mem.get_topic(b)
+        if ta["parent_id"] == b or tb["parent_id"] == a:
+            return True
+        return self.links_between(a, b) >= self.cfg.get("cross_links_per_pair", 2)
+
     def cross_links(self, tid: int, new_ids: list[int], stats: dict):
         for fid in new_ids[: self.cfg["cross_topic_checks"]]:
-            for cand in self.mem.cross_topic_candidates(fid, k=1):
+            if self.cross_links_left <= 0:
+                return
+            for cand in self.mem.cross_topic_candidates(fid, k=1, min_score=self.cfg.get("cross_topic_min", 0.75)):
                 pair = tuple(sorted((fid, cand["id"])))
-                if pair in self.cross_judged:
+                if pair in self.cross_judged or self.related_topics(tid, cand["topic_id"]):
+                    continue
+                if self.mem.get_finding(cand["id"])["relevance"] == "off_topic":
                     continue
                 self.cross_judged.add(pair)
                 mine = self.mem.get_finding(fid)
                 other_topic = self.mem.get_topic(cand["topic_id"])["name"]
                 r = self.llm.json(P.CROSS_TOPIC, f"Finding A ({self.mem.get_topic(tid)['name']}): {mine['text']}\n"
-                                  f"Finding B ({other_topic}): {cand['text']}", P.CROSS_SCHEMA)
+                                  f"Finding B ({other_topic}): {cand['text']}", P.CROSS_SCHEMA, think=self.judge_think)
                 if r.get("link"):
+                    self.cross_links_left -= 1
                     self.mem.flag("cross_topic", r.get("explanation", ""), findings=[fid, cand["id"]],
                                   topics=[tid, cand["topic_id"]])
                     self.mem.log("cross_link", findings=[fid, cand["id"]], explanation=r.get("explanation", ""))
@@ -333,23 +449,25 @@ class Researcher:
     def reflect(self, tid: int) -> dict:
         topic = self.mem.get_topic(tid)
         rows = self.mem.db.execute("SELECT text, stance, confidence FROM findings WHERE topic_id = ? AND kind != 'question'"
-                                   " ORDER BY confidence DESC, id DESC LIMIT 40", (tid,)).fetchall()
+                                   " AND relevance != 'off_topic' ORDER BY (relevance = 'core') DESC,"
+                                   " (stance != 'neutral') DESC, confidence DESC, id DESC LIMIT 40", (tid,)).fetchall()
         if not rows:
             return {}
         bal = self.mem.stance_balance(tid)
-        lines = [f"[{r['stance']}, conf {r['confidence']:.1f}] {r['text']}" for r in rows]
+        level = {0.9: "established", 0.6: "reported", 0.3: "speculative"}
+        lines = [f"[{r['stance']}, {level.get(r['confidence'], 'reported')}] {r['text']}" for r in rows]
         user = (f"Topic: {topic['name']}\n"
                 + (f"Thesis: {topic['thesis']}\nBalance: {bal['supports']['count']} supporting,"
                    f" {bal['challenges']['count']} challenging, {bal['neutral']['count']} neutral\n"
                    if topic["thesis"] else "Thesis: (none - open exploration)\n")
                 + "\nFindings:\n" + P.numbered(lines))
-        r = self.llm.json(P.REFLECT, user, P.REFLECT_SCHEMA)
+        r = self.llm.json(P.REFLECT, user, P.REFLECT_SCHEMA, think=self.judge_think)
         for kind in ("position", "learned", "unsure"):
             if r.get(kind, "").strip():
                 self.mem.set_remark(kind, " ".join(r[kind].split()), topic_id=tid)
         src = self.mem.source("llm", self.llm.model)
         known = {norm(t) for t in self.open_questions(tid)} | self.asked(tid)
-        for nq in (r.get("next_questions") or [])[:3]:
+        for nq in (r.get("next_questions") or [])[:min(3, self.room_for_questions(tid))]:
             nq = " ".join(nq.split())
             if nq.endswith("?") and norm(nq) not in known:
                 self.mem.add_finding(nq, tid, kind="question", confidence=1.0, sources=[src])

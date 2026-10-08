@@ -8,6 +8,9 @@ ends writes the overnight summary (a remark Piper can say in the morning).
         --cycles 5                                          ... this many cycles, then stop
         --db /tmp/scratch.db --seeds research_seeds.yaml    ... on a scratch database
         --overnight                                         write the summary of the last 12 h
+        --rejudge 100                                       judge 100 findings stored before the judge
+        --tidy                                              prune open questions to the cap, and mark the
+                                                            old cross-topic flags reviewed (one-off)
 
 Ctrl+C (or SIGTERM) stops between steps; an unfinished cycle is recorded as 'interrupted'.
 """
@@ -58,6 +61,8 @@ def main():
     ap.add_argument("--db", help="use this database instead of the configured one")
     ap.add_argument("--seeds", help="load these seed topics first")
     ap.add_argument("--overnight", action="store_true", help="write the summary of the last 12 h and stop")
+    ap.add_argument("--rejudge", type=int, default=0, help="judge this many unjudged findings and stop")
+    ap.add_argument("--tidy", action="store_true", help="prune open questions, mark old cross-topic flags reviewed")
     args = ap.parse_args()
     if args.once:
         args.cycles = 1
@@ -74,6 +79,19 @@ def main():
     r = Researcher(mem, llm, wiki, cfg, should_stop=lambda: stop)
     schedule = Schedule(cfg["windows"], cfg["days"])
 
+    if args.tidy:
+        pruned = sum(r.prune_questions(t) for t in mem.topics())
+        flags = [n["id"] for n in mem.notable() if n["kind"] == "cross_topic"]
+        for nid in flags:
+            mem.mark_reviewed(nid)
+        print(f"[Research] Tidied: {pruned} open questions pruned, {len(flags)} cross-topic flags marked reviewed")
+        return
+    if args.rejudge:
+        t0 = time.monotonic()
+        print(f"[Research] Rejudging up to {args.rejudge} of {r.unjudged()} unjudged findings ...")
+        out = r.rejudge(limit=args.rejudge)
+        print(f"[Research] {out} in {time.monotonic() - t0:.0f} s; {r.unjudged()} left")
+        return
     if args.overnight:
         since = (datetime.now(timezone.utc) - timedelta(hours=12)).isoformat(timespec="seconds")
         print(f"[Research] Overnight: {r.overnight(since)}")
@@ -86,6 +104,7 @@ def main():
         if args.now or schedule.active(datetime.now()):
             if night_start is None:
                 night_start = utc_now()
+                r.new_window()
                 mem.log("research_started", model=cfg["model"])
                 print("[Research] Window open - researching")
                 try:
@@ -116,6 +135,15 @@ def main():
                 continue
             if args.cycles and cycles >= args.cycles:
                 break
+            if cfg["rejudge_per_cycle"] and r.unjudged():  # catch up on findings from before the judge
+                try:
+                    out = r.rejudge(limit=cfg["rejudge_per_cycle"])
+                    print(f"[Research]   Rejudged {out['judged']} older findings ({out['changed']} changed stance,"
+                          f" {out['off_topic']} off-topic); {r.unjudged()} left")
+                except Interrupted:
+                    break
+                except (LLMError, EmbedError) as e:
+                    print(f"[Research] Rejudging failed: {e}")
             nap(cfg["pause_s"])
             announced = False
         else:

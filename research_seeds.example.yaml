@@ -9,13 +9,12 @@
 #   angles   starter questions - stored as open questions Piper works from
 
 topics:
-  - name: Why humans make art
+  - name: Animal tool use
     thesis: >
-      Every advanced civilisation treats making art as a basic need; the subjects of art through
-      history may explain why.
+      Only primates truly make tools; other animals merely use objects they find.
     angles:
-      - What is the oldest known art, and what does it depict?
-      - What theories explain the origin of art?
+      - Which birds make tools, and how do they learn it?
+      - What counts as tool making rather than tool use?
 
   - name: How migrating birds navigate
     origin: calibration

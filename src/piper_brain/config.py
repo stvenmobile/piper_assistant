@@ -102,18 +102,27 @@ DEFAULTS: dict = {
                                           #   may cross midnight ("22:00-06:00"). Env: "01:00-08:00,13:00-14:00"
         "days": "daily",                  # or a list: ["mon", "tue", ...] (the day a window starts on)
         "url": None,                      # Ollama for the reasoning model; None = llm.base_url (the PC)
-        "model": "qwen3:14b",             # research only - conversation keeps llm.model
+        "model": "qwen3:30b-a3b",         # research only - conversation keeps llm.model. The 30B (mixture of
+                                          #   experts) judges stance clearly better than qwen3:14b; on the
+                                          #   12 GB RTX 5070 half of it runs on the CPU: ~2-4 min a cycle
         "think": False,                   # qwen3's thinking mode: better reasoning, several times slower
         "temperature": 0.3,
         "num_ctx": 8192,                  # context window (tokens): 8192 keeps qwen3:14b all on the 12 GB
-                                          #   GPU (45 tok/s); 12288 spills to the CPU (12 tok/s)
+                                          #   GPU (45 tok/s); 12288 spilled it to the CPU (12 tok/s)
         "keep_alive": "30m",
         "pages_per_question": 3,          # Wikipedia pages read per question
         "passages": 8,                    # best passages (by similarity to the question) given to the model
         "passage_chars": 1200,
         "max_findings": 8,                # per cycle
+        "judge_think": True,              # thinking mode for the judges (stance + relevance, cross-topic
+                                          #   links, reflection) - slower, but they're where 14B errs
+        "rejudge_per_cycle": 6,           # findings stored before the judge existed, judged after each cycle
+        "max_open_questions": 30,         # per topic; follow-ups stop being added beyond this
         "reflect_every": 3,               # cycles on a topic between reflections (position + remarks)
         "cross_topic_checks": 3,          # new findings per cycle checked for links to other topics
+        "cross_topic_min": 0.75,          # similarity for a cross-topic candidate (memory.cross_topic is 0.68)
+        "cross_links_per_window": 5,      # at most this many flagged per research window
+        "cross_links_per_pair": 2,        # after this many, two topics are known to be linked - no more flags
         "pause_s": 20,                    # between cycles
     },
     "weather": {
