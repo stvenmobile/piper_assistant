@@ -521,7 +521,7 @@ class Researcher:
                  for r in rows][-30:]
         learned = [r["text"] for r in self.mem.db.execute(
             "SELECT text FROM remarks WHERE kind = 'learned' AND written_at >= ? AND superseded_by IS NULL", (since_iso,))]
-        user = "Tonight's research cycles:\n" + P.numbered(lines) + ("\n\nThings you noted:\n" + P.numbered(learned) if learned else "")
+        user = "This session's research cycles:\n" + P.numbered(lines) + ("\n\nThings you noted:\n" + P.numbered(learned) if learned else "")
         r = self.llm.json(P.OVERNIGHT, user, P.OVERNIGHT_SCHEMA)
         text = " ".join(r.get("summary", "").split())
         if text:
