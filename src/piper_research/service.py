@@ -30,6 +30,7 @@ from piper_memory import EmbedError, open_memory      # noqa: E402
 from piper_memory.seeds import load_seeds             # noqa: E402
 from piper_research import (Interrupted, LLMError, OllamaChat, Researcher, Schedule, Wikipedia,  # noqa: E402
                             WikiError)
+from piper_research.sep import SEP                      # noqa: E402
 
 stop = False
 
@@ -63,6 +64,8 @@ def main():
     ap.add_argument("--overnight", action="store_true", help="write the summary of the last 12 h and stop")
     ap.add_argument("--rejudge", type=int, default=0, help="judge this many unjudged findings and stop")
     ap.add_argument("--tidy", action="store_true", help="prune open questions, mark old cross-topic flags reviewed")
+    ap.add_argument("--recheck-stances", action="store_true",
+                    help="queue every supports / challenges verdict for the judge again (after a prompt change)")
     args = ap.parse_args()
     if args.once:
         args.cycles = 1
@@ -74,9 +77,11 @@ def main():
     if args.seeds:
         print(f"[Research] Seeds: {load_seeds(mem, args.seeds)}")
     llm = OllamaChat(cfg["url"] or CONFIG["llm"]["base_url"], cfg["model"], temperature=cfg["temperature"],
-                     num_ctx=cfg["num_ctx"], think=cfg["think"], keep_alive=cfg["keep_alive"])
+                     num_ctx=cfg["num_ctx"], think=cfg["think"], keep_alive=cfg["keep_alive"],
+                     timeout=cfg["timeout_s"], max_tokens=cfg["max_tokens"])
     wiki = Wikipedia(ROOT_DIR / "data" / "research" / "wiki")
-    r = Researcher(mem, llm, wiki, cfg, should_stop=lambda: stop)
+    sep = SEP(ROOT_DIR / "data" / "research" / "sep") if cfg["sep_pages"] > 0 else None
+    r = Researcher(mem, llm, wiki, cfg, should_stop=lambda: stop, sep=sep)
     schedule = Schedule(cfg["windows"], cfg["days"])
 
     if args.tidy:
@@ -85,6 +90,12 @@ def main():
         for nid in flags:
             mem.mark_reviewed(nid)
         print(f"[Research] Tidied: {pruned} open questions pruned, {len(flags)} cross-topic flags marked reviewed")
+        return
+    if args.recheck_stances:
+        with mem.db:
+            n = mem.db.execute("UPDATE findings SET judged_by = NULL WHERE kind != 'question'"
+                               " AND stance != 'neutral'").rowcount
+        print(f"[Research] {n} stance verdicts queued for the judge again")
         return
     if args.rejudge:
         t0 = time.monotonic()

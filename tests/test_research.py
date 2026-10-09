@@ -352,3 +352,66 @@ def test_cross_links_stop_between_topics_already_linked_and_per_window(world):
     stats = {"cross_links": 0}
     r.cross_links(tid, [f["id"] for f in mem.findings(tid) if f["kind"] != "question"], stats)
     assert stats["cross_links"] == 0
+
+
+# ---- night-2 fixes and the Stanford Encyclopedia of Philosophy --------------------------------------
+SEP_HTML = """<html><body><div id="article-content"><h1>Ocean Tides</h1><div id="pubinfo"><em>First published
+Mon Jan 1, 2001; substantive revision Tue Feb 2, 2021</em></div>
+<div id="preamble"><p>Tides are the regular rise and fall of the sea<sup>[1]</sup>.</p></div>
+<div id="main-text"><h2 id="Moo">1. The Moon</h2><p>The Moon's gravity raises two bulges in the oceans,
+one on each side of the Earth.</p><h3>1.1 Spring tides</h3><p>When Sun and Moon align, tides are larger.</p>
+</div><div id="bibliography"><h2>Bibliography</h2><p>Someone, 1999.</p></div></div></body></html>"""
+
+
+def test_sep_entry_text_keeps_sections_and_drops_the_bibliography():
+    from piper_research.sep import entry_text
+    t = entry_text(SEP_HTML)
+    assert "== 1. The Moon ==" in t and "=== 1.1 Spring tides ===" in t
+    assert "two bulges" in t and "Someone, 1999" not in t and "[1]" not in t
+    ps = passages({"title": "Ocean Tides", "text": t, "kind": "sep"}, 400)
+    assert [p["section"] for p in ps] == ["", "1. The Moon", "1.1 Spring tides"]
+    assert ps[1]["key"] == "sep:Ocean Tides"
+
+
+class FakeSEP:
+    kind = "sep"
+    def __init__(self, page): self.p = page; self.searched = []
+    def search(self, q, limit=3): self.searched.append(q); return ["bird-migration"]
+    def page(self, entry): return self.p
+
+
+def test_sep_entry_with_the_same_title_as_a_wikipedia_page_is_credited_to_sep(world):
+    mem, llm, r, tid = world
+    r.sep = FakeSEP({**PAGE, "kind": "sep", "url": "https://plato.stanford.edu/entries/bird-migration/",
+                     "revid": "Tue Feb 2, 2021",
+                     "text": "Birds use a magnetic compass inherited from their parents, philosophers note."})
+    r.cfg = {**CFG, "sep_pages": 1}
+    llm.extract = [finding("Birds inherit a magnetic compass.", "Birds use a magnetic compass inherited from their parents", passage=1)]
+    out = r.cycle()
+    assert out["new"] == 1 and set(out["pages"]) == {"Bird migration"}
+    f = [x for x in mem.findings(tid) if x["kind"] != "question"][0]
+    src = mem.provenance(f["id"])["sources"][0]
+    assert (src["kind"], src["url"]) == ("sep", "https://plato.stanford.edu/entries/bird-migration/")
+
+
+def test_a_failed_judgement_keeps_the_finding_for_rejudging(world):
+    from piper_research.llm import LLMError
+    mem, llm, r, tid = world
+    real = llm.json
+    def flaky(system, user, schema, retries=1, think=None):
+        if schema is P.JUDGE_SCHEMA:
+            raise LLMError("timed out")
+        return real(system, user, schema, retries, think)
+    llm.json = flaky
+    llm.extract = [finding("Birds use a sun compass by day.", "Birds use a sun compass by day")]
+    out = r.cycle()
+    assert out["new"] == 1 and r.unjudged() == 1               # kept, queued for the judge
+    assert r.rejudge(limit=5)["judged"] == 0 and r.unjudged() == 1   # still failing: still queued
+
+
+def test_old_unjudged_cross_topic_flags_do_not_block_new_links(world):
+    mem, llm, r, tid = world
+    other = mem.topic("Sea turtle navigation")
+    for _ in range(5):
+        mem.flag("cross_topic", "old flag from before the judge", topics=[tid, other])
+    assert r.links_between(tid, other) == 0 and not r.related_topics(tid, other)

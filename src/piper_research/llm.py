@@ -14,7 +14,8 @@ class LLMError(RuntimeError):
 
 class OllamaChat:
     def __init__(self, base_url: str, model: str, temperature: float = 0.3, num_ctx: int = 8192,
-                 think: bool = False, keep_alive: str = "30m", timeout: float = 900.0):
+                 think: bool = False, keep_alive: str = "30m", timeout: float = 300.0,
+                 max_tokens: int = 3000):
         self.url = base_url.rstrip("/") + "/api/chat"
         self.model = model
         self.temperature = temperature
@@ -22,6 +23,7 @@ class OllamaChat:
         self.think = think
         self.keep_alive = keep_alive
         self.timeout = timeout
+        self.max_tokens = max_tokens          # thinking included: stops a runaway think early
         self.calls = 0
         self.tokens = 0
         self.seconds = 0.0
@@ -33,7 +35,7 @@ class OllamaChat:
             "model": self.model, "stream": False, "think": self.think if think is None else think,
             "keep_alive": self.keep_alive,
             "format": schema,
-            "options": {"temperature": self.temperature, "num_ctx": self.num_ctx},
+            "options": {"temperature": self.temperature, "num_ctx": self.num_ctx, "num_predict": self.max_tokens},
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         }
         last = None

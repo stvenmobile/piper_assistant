@@ -34,10 +34,12 @@ def passages(page: dict, max_chars: int = 1200) -> list[dict]:
     """A page's text in passages of up to ~max_chars, split at section and paragraph breaks,
     each tagged with its section. Reference / link sections are left out."""
     out, section, skip, buf = [], "", False, []
+    kind = page.get("kind", "wikipedia")
 
     def flush():
         if buf:
-            out.append({"title": page["title"], "section": section, "text": " ".join(buf)})
+            out.append({"title": page["title"], "section": section, "text": " ".join(buf),
+                        "kind": kind, "key": f"{kind}:{page['title']}"})
             buf.clear()
 
     for line in page["text"].split("\n"):
@@ -76,6 +78,8 @@ def _split_long(text: str, max_chars: int) -> list[str]:
 
 
 class Wikipedia:
+    kind = "wikipedia"
+
     def __init__(self, cache_dir: str | Path | None = None, timeout: float = 30.0):
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.timeout = timeout
@@ -108,7 +112,8 @@ class Wikipedia:
             return None
         p = pages[0]
         revid = (p.get("revisions") or [{}])[0].get("revid")
-        page = {"title": p["title"], "revid": revid, "url": page_url(p["title"], revid), "text": p["extract"]}
+        page = {"title": p["title"], "revid": revid, "url": page_url(p["title"], revid), "text": p["extract"],
+                "kind": "wikipedia"}
         if cached:
             cached.parent.mkdir(parents=True, exist_ok=True)
             cached.write_text(json.dumps(page), encoding="utf-8")

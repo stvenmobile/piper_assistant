@@ -110,7 +110,11 @@ DEFAULTS: dict = {
         "num_ctx": 8192,                  # context window (tokens): 8192 keeps qwen3:14b all on the 12 GB
                                           #   GPU (45 tok/s); 12288 spilled it to the CPU (12 tok/s)
         "keep_alive": "30m",
+        "max_tokens": 3000,               # per reply, thinking included (a runaway think hit the old 900 s timeout)
+        "timeout_s": 300,
         "pages_per_question": 3,          # Wikipedia pages read per question
+        "sep_pages": 1,                   # + Stanford Encyclopedia of Philosophy entries (0 = off); its
+                                          #   passages compete with Wikipedia's for the question
         "passages": 8,                    # best passages (by similarity to the question) given to the model
         "passage_chars": 1200,
         "max_findings": 8,                # per cycle

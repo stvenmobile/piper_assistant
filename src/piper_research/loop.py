@@ -4,8 +4,9 @@ The research loop - one cycle:
     CHOOSE       pick a topic: stale, thin, open questions and a split of evidence raise its
                  score; topics that stopped yielding anything new (saturation) fall back
     QUESTION     the model picks an open question or writes a better one, plus search queries
-    READ         Wikipedia: search, fetch pages (by revision), cut into passages, keep the ones
-                 closest to the question (embeddings)
+    READ         Wikipedia (pages by revision) and the Stanford Encyclopedia of Philosophy (entries
+                 by revision date): search, fetch, cut into passages, keep the ones closest to
+                 the question (embeddings) - whichever source they come from
     EXTRACT      the model lists findings - claim, exact quote, kind, confidence, stance,
                  relations - plus a short answer and follow-up questions
     VERIFY       a finding is kept only if its quote is really in the passages; duplicates add a
@@ -32,7 +33,7 @@ import numpy as np
 from piper_memory.embed import EmbedError, normalise
 from piper_memory.schema import CERTAINTY
 from piper_research import prompts as P
-from piper_research.llm import OllamaChat
+from piper_research.llm import LLMError, OllamaChat
 from piper_research.verify import find_quote, norm
 from piper_research.wiki import Wikipedia, passages
 
@@ -49,10 +50,11 @@ def _hours_since(iso: str | None, now: datetime) -> float:
 
 class Researcher:
     def __init__(self, mem, llm: OllamaChat, wiki: Wikipedia, cfg: dict, log=print, rng=None,
-                 should_stop=lambda: False):
+                 should_stop=lambda: False, sep=None):
         self.mem = mem
         self.llm = llm
         self.wiki = wiki
+        self.sep = sep                              # Stanford Encyclopedia of Philosophy (or None)
         self.cfg = cfg
         self.say = log
         self.rng = rng or random.Random()
@@ -192,8 +194,31 @@ class Researcher:
             page = self.wiki.page(title)
             if page and all(p["title"] != page["title"] for p in pages):
                 pages.append(page)
+        pages += self.read_sep(queries)
         chunks = [c for p in pages for c in passages(p, self.cfg["passage_chars"])]
         return pages, self.rank(question, chunks)[: self.cfg["passages"]]
+
+    def read_sep(self, queries: list[str]) -> list[dict]:
+        """Up to sep_pages SEP entries for the queries (its 5 s crawl delay makes each request slow,
+        so only the first two queries are searched). A failure here only costs this cycle's SEP."""
+        n = self.cfg.get("sep_pages", 1)
+        if self.sep is None or n <= 0:
+            return []
+        try:
+            entries: list[str] = []
+            for q in queries[:2]:
+                for e in self.sep.search(q, limit=2):
+                    if e not in entries:
+                        entries.append(e)
+            out = []
+            for e in entries[:n]:
+                page = self.sep.page(e)
+                if page:
+                    out.append(page)
+            return out
+        except Exception as e:                      # network, parsing: carry on with Wikipedia alone
+            self.mem.log("sep_failed", error=str(e)[:200])
+            return []
 
     def rank(self, question: str, chunks: list[dict]) -> list[dict]:
         if not chunks:
@@ -228,7 +253,11 @@ class Researcher:
                 + (f"Description: {topic['description']}\n" if topic["description"] else "")
                 + (f"Thesis: {topic['thesis']}\n" if topic["thesis"] else "Thesis: (none - stance is neutral)\n")
                 + f"\nFinding: {claim}\n" + (f'Source quote: "{quote}"\n' if quote else ""))
-        r = self.llm.json(P.JUDGE, user, P.JUDGE_SCHEMA, think=self.judge_think)
+        try:
+            r = self.llm.json(P.JUDGE, user, P.JUDGE_SCHEMA, think=self.judge_think)
+        except LLMError as e:                       # e.g. a runaway think: keep the finding, judge it later
+            self.mem.log("judge_failed", claim=claim[:120], error=str(e)[:200])
+            return {"relevance": "core", "stance": "neutral", "reason": "", "failed": True}
         relevance = r.get("relevance") if r.get("relevance") in ("core", "background", "off_topic") else "core"
         stance = r.get("stance") if (topic["thesis"] and r.get("stance") in ("supports", "challenges")) else "neutral"
         return {"relevance": relevance, "stance": stance, "reason": " ".join(r.get("reason", "").split())}
@@ -250,6 +279,8 @@ class Researcher:
             self._check()
             topic = topics.setdefault(row["topic_id"], self.mem.get_topic(row["topic_id"]))
             j = self.judge(topic, row["text"], row["quote"] or "")
+            if j.get("failed"):
+                continue
             self.mem.judge_finding(row["id"], j["stance"], j["relevance"], j["reason"], self.llm.model)
             counts["judged"] += 1
             counts["off_topic"] += j["relevance"] == "off_topic"
@@ -326,13 +357,14 @@ class Researcher:
     # ---- EXTRACT + VERIFY ---------------------------------------------------------------------
     def extract(self, topic, ep, question, pages, chosen, stats) -> tuple[str, list[int]]:
         tid = topic["id"]
-        text = "\n\n".join(f"[{i}] ({c['title']} - {c['section'] or 'introduction'})\n{c['text']}"
+        label = {"sep": "Stanford Encyclopedia of Philosophy: ", "wikipedia": "Wikipedia: "}
+        text = "\n\n".join(f"[{i}] ({label.get(c.get('kind'), '')}{c['title']} - {c['section'] or 'introduction'})\n{c['text']}"
                            for i, c in enumerate(chosen, 1))
         user = (f"Topic: {topic['name']}\n"
                 + (f"Thesis: {topic['thesis']}\n" if topic["thesis"] else "Thesis: (none)\n")
                 + f"Question: {question}\nAt most {self.cfg['max_findings']} findings.\n\nPassages:\n{text}")
         r = self.llm.json(P.EXTRACT, user, P.EXTRACT_SCHEMA)
-        by_title = {p["title"]: p for p in pages}
+        by_key = {f"{p.get('kind', 'wikipedia')}:{p['title']}": p for p in pages}
         new_ids = []
         for f in (r.get("findings") or [])[: self.cfg["max_findings"]]:
             stats["extracted"] += 1
@@ -349,8 +381,8 @@ class Researcher:
                 self.mem.log("rejected", episode=ep, claim=claim, quote=f["quote"][:300])
                 continue
             c = chosen[hit]
-            page = by_title[c["title"]]
-            sid = self.mem.source("wikipedia", page["title"], url=page["url"], revid=page["revid"])
+            page = by_key[c.get("key", f"wikipedia:{c['title']}")]
+            sid = self.mem.source(page.get("kind", "wikipedia"), page["title"], url=page["url"], revid=page["revid"])
             quote = " ".join(f["quote"].split())
             is_q = f.get("kind") == "question"
             dup = self.mem.duplicate_of(claim, topic_id=tid, questions=is_q)
@@ -378,7 +410,8 @@ class Researcher:
             confidence = CERTAINTY.get(f.get("certainty"), 0.6)
             fid = self.mem.add_finding(claim, tid, ep, kind=kind, confidence=confidence, status=status,
                                        relates_to=relates_to, stance=j["stance"], relevance=j["relevance"],
-                                       stance_reason=j["reason"], judged_by=self.llm.model, sources=[(sid, quote)])
+                                       stance_reason=j["reason"], sources=[(sid, quote)],
+                                       judged_by=None if j.get("failed") else self.llm.model)
             stats["new"] += 1
             new_ids.append(fid)
             self.mem.log("finding", episode=ep, finding=fid, text=claim, stance=j["stance"], relevance=j["relevance"],
@@ -409,10 +442,12 @@ class Researcher:
 
     # ---- CONSOLIDATE: links between topics ----------------------------------------------------
     def links_between(self, a: int, b: int) -> int:
-        """How many cross-topic links have ever been flagged between topics a and b."""
+        """How many cross-topic links the judge has flagged between topics a and b (flags from
+        before the judge - night 1's 755 - carry no "judged" mark and don't count)."""
         n = 0
         for (refs,) in self.mem.db.execute("SELECT refs FROM notable WHERE kind = 'cross_topic'"):
-            if {a, b} <= set(json.loads(refs).get("topics", [])):
+            r = json.loads(refs)
+            if r.get("judged") and {a, b} <= set(r.get("topics", [])):
                 n += 1
         return n
 
@@ -441,7 +476,7 @@ class Researcher:
                 if r.get("link"):
                     self.cross_links_left -= 1
                     self.mem.flag("cross_topic", r.get("explanation", ""), findings=[fid, cand["id"]],
-                                  topics=[tid, cand["topic_id"]])
+                                  topics=[tid, cand["topic_id"]], judged=True)
                     self.mem.log("cross_link", findings=[fid, cand["id"]], explanation=r.get("explanation", ""))
                     stats["cross_links"] += 1
 

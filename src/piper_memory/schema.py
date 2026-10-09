@@ -5,7 +5,7 @@ are views of it).
     topics      the hierarchy + agenda: what Piper studies, with her curiosity scores, and an
                 optional THESIS - a position to examine (map who argues what, not to confirm)
     episodes    the research diary: one row per research cycle on a topic
-    sources     where things were learned (wikipedia | web | llm | user), de-duplicated by `ref`
+    sources     where things were learned (wikipedia | sep | web | llm | user), de-duplicated by `ref`
     findings    single claims (fact | pattern | quantity | question), each with its topic, the
                 episode that produced it, a confidence, its STANCE toward the topic's thesis
                 (supports | challenges | neutral), and how it relates to what was already
@@ -58,7 +58,7 @@ FINDING_STATUS = ("new", "confirms", "refines", "contradicts")
 STANCES = ("supports", "challenges", "neutral")          # toward the topic's thesis
 RELEVANCE = ("core", "background", "off_topic")          # to the topic
 CERTAINTY = {"established": 0.9, "reported": 0.6, "speculative": 0.3}   # -> findings.confidence
-SOURCE_KINDS = ("wikipedia", "web", "llm", "user")
+SOURCE_KINDS = ("wikipedia", "sep", "web", "llm", "user")
 TOPIC_STATUS = ("queued", "active", "resting", "retired")
 
 DDL = """

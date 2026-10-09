@@ -51,7 +51,8 @@ page wanders into) is not a finding. Rules:
   depends_on "sun compass", "cryptochrome" part_of "retina", "stellar compass" depends_on
   "Polaris". Concepts are things: a single noun phrase of 1-3 words, singular ("dream", not
   "dreams"; "thalamus", not "the role of the thalamus"); never verbs, clauses or phrases like
-  "determine location". Give no relation rather than a vague one.
+  "determine location". Nearly every claim links two things - give 1-3 relations for every
+  finding, choosing the predicate that fits best.
 - Skip trivia (dates of publications, people's affiliations) unless it matters to the question.
 Then: "answer" - 1-3 sentences answering the question from these passages ("" if they don't),
 and "follow_up_questions" - up to 3 questions the passages raise but don't answer."""
@@ -67,7 +68,7 @@ EXTRACT_SCHEMA = {
                 "passage": {"type": "integer"},
                 "kind": {"type": "string", "enum": ["fact", "pattern", "quantity", "question"]},
                 "certainty": {"type": "string", "enum": list(CERTAINTY)},
-                "relations": {"type": "array", "maxItems": 3, "items": {
+                "relations": {"type": "array", "minItems": 1, "maxItems": 3, "items": {
                     "type": "object",
                     "properties": {"subject": {"type": "string"},
                                    "predicate": {"type": "string", "enum": EXTRACT_RELATIONS},
@@ -100,6 +101,10 @@ STANCE toward the thesis (only if there is a thesis; otherwise neutral)
 - challenges: a critic would cite it as evidence AGAINST it - including findings that support a
   rival explanation the thesis rejects.
 - neutral: on the topic but neither side would use it - most findings are neutral.
+A finding counts only if it is MORE EXPECTED under one view than under its rival - if both the
+thesis and its rival would predict it equally, it is neutral, however relevant. Describing a
+mechanism that every view accepts (how a part works, that one thing accompanies another) is
+usually neutral for that reason.
 Being about the same subject is NOT support. A finding that only defines or describes a concept,
 problem or theory is neutral - judge what it shows or argues, not the words it happens to use.
 An off_topic finding is always neutral. Reason from what the thesis actually claims: e.g. for
@@ -119,7 +124,8 @@ Compare a NEW finding with an EARLIER one on the same topic. Does the new one co
 the same, from another angle or source), refine it (adds detail, a limit or a correction of
 degree to the SAME point), contradict it, or neither (different points)?
 Contradicts means they cannot both be true. Different methods, causes or examples side by side
-are NOT a contradiction - "birds use the sun" and "birds use the magnetic field" can both be
+are NOT a contradiction, and neither is a claim next to a caution about its evidence ("X works" /
+"evidence for X is limited" - that refines it) - "birds use the sun" and "birds use the magnetic field" can both be
 true, so that is "neither". When unsure, answer "neither"."""
 
 RELATE_SCHEMA = {"type": "object",
@@ -162,18 +168,21 @@ established findings back it.
   fill the biggest gap."""
 
 REFLECT_SCHEMA = {"type": "object",
-                  "properties": {"position": {"type": "string"}, "learned": {"type": "string"},
-                                 "unsure": {"type": "string"},
+                  "properties": {"position": {"type": "string", "maxLength": 700},
+                                 "learned": {"type": "string", "maxLength": 300},
+                                 "unsure": {"type": "string", "maxLength": 240},
                                  "next_questions": {"type": "array", "items": {"type": "string"}, "maxItems": 3}},
                   "required": ["position", "learned", "unsure", "next_questions"]}
 
 # ---- 5. the morning summary -----------------------------------------------------------------------
 OVERNIGHT = ROLE + """
 Summarise your night of research for when people wake up. Write as Piper, first person, warm
-and plain, said aloud (no lists): what you looked into and the most interesting thing you found.
+and plain, said aloud: no lists, and don't name every topic - one or two highlights. Keep claims
+calibrated: "some reports say", "researchers think" for anything disputed or speculative.
 At most 60 words."""
 
-OVERNIGHT_SCHEMA = {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}
+OVERNIGHT_SCHEMA = {"type": "object", "properties": {"summary": {"type": "string", "maxLength": 420}},
+                    "required": ["summary"]}
 
 
 def numbered(items: list[str]) -> str:
