@@ -57,5 +57,15 @@ def find_quote(quote: str, texts: list[str]) -> int | None:
     return None
 
 
+def tidy_remark(text: str) -> str:
+    """A remark as the model wrote it, minus its slips: other JSON fields run into it
+    ('... \\n\\n"learned": ...'), literal \\n sequences, and word counts tacked on ('(39 words)')."""
+    t = text or ""
+    t = re.split(r'(?:\\n|\n)\s*"?[a-z_]+"?\s*:', t, maxsplit=1)[0]     # another field begins
+    t = t.replace("\\n", " ")
+    t = re.sub(r"\s*\(\s*\d+\s*words?\s*\)\s*$", "", t, flags=re.I)
+    return " ".join(t.split()).strip(' "')
+
+
 def split_sentences(text: str) -> list[str]:
     return [s for s in re.split(r"(?<=[.!?])\s+", text) if s]

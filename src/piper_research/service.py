@@ -146,7 +146,8 @@ def main():
             if night_start is None:
                 night_start = utc_now()
                 r.new_window()
-                mem.log("research_started", model=cfg["model"])
+                mem.log("research_started", model=cfg["model"],
+                        session_hours=(cfg["session_hours"] if args.session < 0 else args.session) if args.session is not None else None)
                 print("[Research] Window open - researching")
                 try:
                     if n := mem.backfill_embeddings():
@@ -198,6 +199,8 @@ def main():
             nap(30)
     if night_start is not None and cycles and not args.cycles:     # a session ended, or Piper stopped
         finish("Session ended" if session_end is not None and not stop else "Stopped")
+    elif night_start is not None:                                   # --once / --cycles: just mark the end
+        mem.log("research_ended", cycles=cycles, reason="manual run")
     mem.close()
 
 

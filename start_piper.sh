@@ -76,5 +76,14 @@ if [[ "${RESEARCH_ENABLED}" == "True" ]]; then
     echo "[Research] Service started (pid ${RESEARCH_PID})"
 fi
 
-# 7. Run (Ctrl+C, or type q + Enter, to stop)
+# 7. The dashboard (read-only web view of the research memory) on dashboard.port, home network only
+DASH_ENABLED="$(python3 -c 'import sys; sys.path.insert(0, "src"); from piper_brain.config import CONFIG; print(CONFIG["dashboard"]["enabled"])' 2>/dev/null || echo False)"
+if [[ "${DASH_ENABLED}" == "True" ]]; then
+    python3 src/piper_dashboard/server.py &
+    DASH_PID=$!
+    trap 'kill ${HEAD_PID:-} ${VISION_PID:-} ${RESEARCH_PID:-} ${DASH_PID} 2>/dev/null || true' EXIT
+    echo "[Dashboard] http://$(hostname -I 2>/dev/null | cut -d' ' -f1):$(python3 -c 'import sys; sys.path.insert(0, "src"); from piper_brain.config import CONFIG; print(CONFIG["dashboard"]["port"])' 2>/dev/null)/"
+fi
+
+# 8. Run (Ctrl+C, or type q + Enter, to stop)
 python3 src/main.py "$@"

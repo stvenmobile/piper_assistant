@@ -131,6 +131,11 @@ DEFAULTS: dict = {
         "cross_links_per_pair": 2,        # after this many, two topics are known to be linked - no more flags
         "pause_s": 20,                    # between cycles
     },
+    "dashboard": {                        # piper_dashboard: read-only web view of the research memory
+        "enabled": True,
+        "host": "0.0.0.0",                # every interface: reachable on the home network - keep it there
+        "port": 8080,
+    },
     "weather": {
         "location": "Matthews,NC",
         "cache_minutes": 10,

@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Piper's Research</title>
+<style>
+:root {
+  --bg: #111418; --panel: #1b1f25; --panel2: #232831; --line: #2e3440; --text: #e6e9ee; --muted: #9aa3ae;
+  --accent: #4f8fd8; --sup: #3fb67a; --cha: #e0685f; --neu: #7d8794; --warn: #e3a64a; --bg-chip: #2a303a;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f4f6f8; --panel: #ffffff; --panel2: #f0f2f5; --line: #dde1e6; --text: #1d2228; --muted: #5f6873;
+          --accent: #2f6fbe; --sup: #23935a; --cha: #c4473e; --neu: #8a939d; --warn: #b67a19; --bg-chip: #eceff3; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--neu); vertical-align: 1px; }
+.dot.on { background: var(--sup); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sup) 25%, transparent); }
+.hstat { color: var(--muted); font-size: 13px; }
+.hstat b { color: var(--text); font-weight: 600; }
+nav { display: flex; gap: 4px; margin-left: auto; }
+nav button { background: none; border: 1px solid transparent; color: var(--muted); padding: 6px 12px; border-radius: 7px; cursor: pointer; font: inherit; }
+nav button.active { background: var(--panel2); color: var(--text); border-color: var(--line); }
+main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.view { display: none; } .view.active { display: block; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+.panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.muted { color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--bg-chip); color: var(--muted); white-space: nowrap; }
+.chip.supports { background: color-mix(in srgb, var(--sup) 22%, transparent); color: var(--sup); }
+.chip.challenges { background: color-mix(in srgb, var(--cha) 22%, transparent); color: var(--cha); }
+.chip.off_topic, .chip.warn { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+.chip.sep { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+/* now */
+.current { font-size: 16px; } .current .q { font-size: 18px; margin-top: 4px; }
+.kpis { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.kpi { background: var(--panel2); border-radius: 8px; padding: 8px 12px; min-width: 110px; }
+.kpi .v { font-size: 20px; font-weight: 600; } .kpi .l { font-size: 12px; color: var(--muted); }
+.feed { max-height: 62vh; overflow-y: auto; }
+.ev { display: grid; grid-template-columns: 70px 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.ev:first-child { border-top: none; }
+.ev .t { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; padding-top: 2px; }
+.ev.big .b { font-weight: 600; }
+.ev .src { color: var(--muted); font-size: 12px; }
+/* topics */
+.topic h3 { margin: 0 0 4px; font-size: 16px; }
+.thesis { color: var(--muted); font-style: italic; margin: 4px 0 10px; }
+.bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--panel2); margin: 6px 0 4px; }
+.bar span { display: block; height: 100%; }
+.legend { font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
+.remark { margin: 10px 0 0; } .remark .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+details { margin-top: 10px; } summary { cursor: pointer; color: var(--accent); }
+details ul { margin: 6px 0 0; padding-left: 18px; } details li { margin: 3px 0; }
+.meta { font-size: 12px; color: var(--muted); margin-top: 8px; }
+/* findings */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+select, input[type=search] { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; font: inherit; }
+input[type=search] { min-width: 220px; flex: 1; }
+.f { padding: 12px 0; border-top: 1px solid var(--line); }
+.f:first-child { border-top: none; }
+.f .text { font-size: 15px; }
+.f .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.f .quote { border-left: 3px solid var(--line); padding: 2px 10px; color: var(--muted); margin: 6px 0; font-style: italic; }
+.f .why { font-size: 13px; color: var(--muted); }
+.pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 10px; }
+button.btn { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 6px 12px; cursor: pointer; font: inherit; }
+button.btn:disabled { opacity: .4; cursor: default; }
+/* sessions */
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; border-top: none; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; }
+tr.sum td { border-top: none; padding-top: 0; color: var(--muted); }
+/* notable */
+.nb { padding: 12px 0; border-top: 1px solid var(--line); }
+.nb:first-child { border-top: none; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.pair > div { background: var(--panel2); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+/* graph */
+.gwrap { display: grid; grid-template-columns: 1fr 340px; gap: 14px; }
+#gsvg { width: 100%; height: 66vh; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; cursor: grab; }
+#gsvg text { font-size: 11px; fill: var(--text); pointer-events: none; }
+#gsvg .edge { stroke: var(--line); }
+#gsvg .node { fill: var(--accent); stroke: var(--panel); stroke-width: 1.5; cursor: pointer; }
+#gsvg .node.sel { fill: var(--warn); }
+#gside { max-height: 66vh; overflow-y: auto; }
+.rel { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.rel .p { color: var(--accent); }
+@media (max-width: 900px) { .gwrap { grid-template-columns: 1fr; } .pair { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { nav { margin-left: 0; width: 100%; overflow-x: auto; } .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1><span id="dot" class="dot"></span>Piper's Research</h1>
+  <span class="hstat" id="hstate">loading…</span>
+  <nav>
+    <button data-view="now" class="active">Now</button>
+    <button data-view="topics">Topics</button>
+    <button data-view="findings">Findings</button>
+    <button data-view="sessions">Sessions</button>
+    <button data-view="notable">Notable</button>
+    <button data-view="graph">Graph</button>
+  </nav>
+</header>
+<main>
+  <section class="view active" id="now">
+    <div class="panel">
+      <h2>Current</h2>
+      <div class="current" id="current">–</div>
+      <div class="kpis" id="kpis"></div>
+    </div>
+    <div class="panel">
+      <h2>Activity</h2>
+      <div class="feed" id="feed"></div>
+    </div>
+  </section>
+
+  <section class="view" id="topics"><div class="grid" id="topicGrid"></div></section>
+
+  <section class="view" id="findings">
+    <div class="panel">
+      <div class="filters">
+        <select id="fTopic"><option value="">All topics</option></select>
+        <select id="fStance"><option value="">Any stance</option><option>supports</option><option>challenges</option><option>neutral</option></select>
+        <select id="fRel"><option value="">Any relevance</option><option>core</option><option>background</option><option value="off_topic">off topic</option></select>
+        <select id="fSrc"><option value="">Any source</option><option value="wikipedia">Wikipedia</option><option value="sep">Stanford Encyclopedia</option></select>
+        <select id="fKind"><option value="claims">Findings</option><option value="questions">Open questions</option><option value="all">Both</option></select>
+        <input type="search" id="fQ" placeholder="Search findings…">
+      </div>
+    </div>
+    <div class="panel"><div id="fList"></div>
+      <div class="pager"><span class="muted" id="fCount"></span><button class="btn" id="fPrev">Previous</button><button class="btn" id="fNext">Next</button></div>
+    </div>
+  </section>
+
+  <section class="view" id="sessions">
+    <div class="panel"><h2>Research sessions</h2>
+      <table><thead><tr><th>Started</th><th>Length</th><th class="n">Cycles</th><th class="n">New</th><th class="n">Off-topic</th>
+        <th class="n">Quote not found</th><th class="n">Supports / Challenges</th><th class="n">Relations</th><th>Ended</th></tr></thead>
+        <tbody id="sessBody"></tbody></table>
+    </div>
+  </section>
+
+  <section class="view" id="notable">
+    <div class="panel">
+      <div class="filters">
+        <select id="nKind"><option value="">Contradictions and links</option><option value="contradiction">Contradictions</option><option value="cross_topic">Links between topics</option></select>
+        <select id="nShow"><option value="open">Not yet reviewed</option><option value="all">All</option></select>
+        <span class="muted" id="nCount"></span>
+      </div>
+    </div>
+    <div class="panel"><div id="nList"></div></div>
+  </section>
+
+  <section class="view" id="graph">
+    <div class="panel">
+      <div class="filters">
+        <select id="gTopic"><option value="">All topics</option></select>
+        <select id="gLimit"><option value="60">60 concepts</option><option value="120" selected>120 concepts</option><option value="200">200 concepts</option></select>
+        <label class="muted"><input type="checkbox" id="gVague"> include vague "related to" links</label>
+        <span class="muted" id="gCount"></span>
+      </div>
+    </div>
+    <div class="gwrap">
+      <svg id="gsvg"></svg>
+      <div class="panel" id="gside"><div class="muted">Click a concept to see what Piper has linked it to, and the findings behind each link. Drag to pan, scroll to zoom.</div></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const get = async (u) => { const r = await fetch(u); if (!r.ok) throw new Error((await r.json()).error || r.status); return r.json(); };
+const time = iso => new Date(iso).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+const when = iso => { if (!iso) return "never"; const s = (Date.now() - new Date(iso)) / 1000;
+  return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 172800 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
+const hm = s => s == null ? "" : `${Math.floor(s / 3600)} h ${String(Math.floor(s % 3600 / 60)).padStart(2, "0")} min`;
+const SRC = {wikipedia: "Wikipedia", sep: "Stanford Encyclopedia"};
+const tidy = t => String(t ?? "").split(/(?:\\n|\n)\s*"?[a-z_]+"?\s*:/)[0].replace(/\\n/g, " ").replace(/\s*\(\s*\d+\s*words?\s*\)\s*$/i, "").trim();
+
+// ---- tabs ------------------------------------------------------------------------------------
+let view = "now";
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => show(b.dataset.view));
+function show(v) {
+  view = v;
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.view === v));
+  document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === v));
+  if (v === "topics") loadTopics();
+  if (v === "findings") loadFindings();
+  if (v === "sessions") loadSessions();
+  if (v === "notable") loadNotable();
+  if (v === "graph") loadGraph();
+}
+
+// ---- header + now -------------------------------------------------------------------------------
+async function loadStatus() {
+  try {
+    const s = await get("/api/status");
+    $("#dot").classList.toggle("on", s.researching);
+    const sess = s.session;
+    let h = s.researching ? "<b>Researching</b>" : "<b>Idle</b>";
+    if (s.researching && s.seconds_left != null) h += ` · ${hm(Math.max(0, s.seconds_left))} left in this session`;
+    else if (sess && !sess.active) h += ` · last session ended ${when(sess.end)}`;
+    $("#hstate").innerHTML = h;
+    const c = s.current;
+    $("#current").innerHTML = c ? `<span class="muted">${s.researching ? "Studying" : "Last studied"}</span> <b>${esc(c.topic)}</b>
+      <div class="q">${esc(c.question)}</div><div class="meta">started ${when(c.started)}</div>` : "No research yet.";
+    const st = s.stats, t = sess ? sess.totals : {};
+    const k = [[sess ? sess.cycles : 0, s.researching ? "cycles this session" : "cycles last session"], [t.new ?? 0, "new findings"], [t.off_topic ?? 0, "dropped off-topic"],
+               [t.rejected ?? 0, "quotes not found"], [st.findings, "findings in memory"], [st.unjudged, "awaiting the judge"],
+               [st.concepts, "concepts"], [st.sources, "pages read"]];
+    $("#kpis").innerHTML = k.map(([v, l]) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+  } catch (e) { $("#hstate").textContent = "Can't reach Piper's memory: " + e.message; }
+}
+
+let lastEvent = 0;
+function evHTML(e) {
+  const chip = (txt, cls = "") => `<span class="chip ${cls}">${esc(txt)}</span>`;
+  switch (e.kind) {
+    case "research_started": return [`Session started${e.session_hours ? ` (${e.session_hours} h)` : ""} · ${esc(e.model)}`, true];
+    case "research_ended": return [`Session ended after ${e.cycles} cycles`, true];
+    case "topic_chosen": return [`Topic: ${esc(e.topic)}`, true];
+    case "question": return [`Q: ${esc(e.question)}`];
+    case "pages_read": return [`Read ${(e.pages || []).map(esc).join(", ") || "nothing"}`];
+    case "finding": return [`${chip(e.stance || "neutral", e.stance)} ${e.relevance && e.relevance !== "core" ? chip(e.relevance) : ""} ${esc(e.text)}<div class="src">${esc(e.source || "")}</div>`];
+    case "rejected": return [`${chip("quote not found", "warn")} ${esc(e.claim)}`];
+    case "off_topic": return [`${chip("off topic", "off_topic")} ${esc(e.claim)}`];
+    case "confirmed_by_source": return [`Already known, another source: ${esc(e.source)}`];
+    case "cross_link": return [`${chip("link between topics", "sep")} ${esc(e.explanation)}`];
+    case "reflected": return [`Reflected on ${esc(e.topic || "")}: ${esc(tidy(e.learned))}`, true];
+    case "rejudged": return [`Re-judged ${e.judged} older findings (${e.changed} changed stance, ${e.off_topic} off-topic)`];
+    case "cycle_done": return [`Cycle done: ${esc(e.outcome)}, ${e.new} new`];
+    case "overnight": return [`Session summary: ${esc(tidy(e.summary))}`, true];
+    case "reflected_raw": return null;
+    case "research_error": case "judge_failed": case "sep_failed": return [`${chip("problem", "warn")} ${esc(e.error)}`];
+    case "concept_judged": return null;
+    default: return [`${esc(e.kind)}`];
+  }
+}
+async function loadEvents() {
+  try {
+    const evs = await get("/api/events?since=" + lastEvent);
+    if (!evs.length) return;
+    const feed = $("#feed"), atTop = feed.scrollTop < 30;
+    const html = evs.map(e => { const r = evHTML(e); return r ? `<div class="ev ${r[1] ? "big" : ""}"><div class="t">${time(e.ts)}</div><div class="b">${r[0]}</div></div>` : ""; })
+                    .reverse().join("");
+    feed.insertAdjacentHTML("afterbegin", html);
+    while (feed.children.length > 400) feed.lastChild.remove();
+    if (atTop) feed.scrollTop = 0;
+    lastEvent = evs[evs.length - 1].id;
+  } catch (e) { /* the header shows the error */ }
+}
+
+// ---- topics -------------------------------------------------------------------------------------
+let topicList = [];
+async function loadTopics(tries = 3) {
+  if (!topicList.length) $("#topicGrid").innerHTML = `<div class="muted">Loading topics…</div>`;
+  try { topicList = await get("/api/topics"); }
+  catch (e) {
+    if (tries > 1) return setTimeout(() => loadTopics(tries - 1), 1000);
+    $("#topicGrid").innerHTML = `<div class="muted">Couldn't load the topics: ${esc(e.message)}</div>`; return;
+  }
+  const sel = $("#fTopic"), keep = sel.value;
+  sel.innerHTML = `<option value="">All topics</option>` + topicList.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  sel.value = keep;
+  $("#topicGrid").innerHTML = topicList.map(t => {
+    const b = t.balance, s = b.supports.count, c = b.challenges.count, n = b.neutral.count, tot = Math.max(1, s + c + n);
+    const r = t.remarks, rem = (k, l) => r[k] ? `<div class="remark"><div class="k">${l}</div>${esc(r[k].text)}</div>` : "";
+    const src = Object.entries(t.by_source).map(([k, v]) => `${SRC[k] || k} ${v}`).join(" · ");
+    return `<div class="panel topic">
+      <h3>${esc(t.name)}</h3>
+      ${t.thesis ? `<div class="thesis">${esc(t.thesis)}</div>` : `<div class="thesis">Open exploration (no thesis)</div>`}
+      ${t.thesis ? `<div class="bar"><span style="width:${100 * s / tot}%;background:var(--sup)"></span><span style="width:${100 * n / tot}%;background:var(--neu)"></span><span style="width:${100 * c / tot}%;background:var(--cha)"></span></div>
+      <div class="legend"><span style="color:var(--sup)">${s} support</span><span>${n} neutral</span><span style="color:var(--cha)">${c} challenge</span></div>` : ""}
+      ${rem("position", "Where it stands")}${rem("learned", "Most interesting")}${rem("unsure", "Still unclear")}
+      <details><summary>${t.open_questions_total} open questions</summary><ul>${t.open_questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul></details>
+      <div class="meta">${t.findings} findings (${src}) · ${t.episodes} cycles · last studied ${when(t.last_researched)}
+        · <a href="#" data-topic="${t.id}">see findings</a></div>
+    </div>`;
+  }).join("");
+  document.querySelectorAll("a[data-topic]").forEach(a => a.onclick = ev => { ev.preventDefault(); $("#fTopic").value = a.dataset.topic; fOffset = 0; show("findings"); });
+}
+
+// ---- findings -------------------------------------------------------------------------------------
+let fOffset = 0; const PAGE = 50;
+["#fTopic", "#fStance", "#fRel", "#fSrc", "#fKind"].forEach(id => $(id).onchange = () => { fOffset = 0; loadFindings(); });
+let qTimer; $("#fQ").oninput = () => { clearTimeout(qTimer); qTimer = setTimeout(() => { fOffset = 0; loadFindings(); }, 300); };
+$("#fPrev").onclick = () => { fOffset = Math.max(0, fOffset - PAGE); loadFindings(); };
+$("#fNext").onclick = () => { fOffset += PAGE; loadFindings(); };
+async function loadFindings() {
+  if (!topicList.length) await loadTopics();
+  const p = new URLSearchParams({topic: $("#fTopic").value, stance: $("#fStance").value, relevance: $("#fRel").value,
+                                 source: $("#fSrc").value, kind: $("#fKind").value, q: $("#fQ").value, limit: PAGE, offset: fOffset});
+  const r = await get("/api/findings?" + p);
+  $("#fList").innerHTML = r.items.map(f => {
+    const s = f.sources[0];
+    const src = s ? `${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>` : esc(s.title)}
+      <span class="chip ${s.kind === "sep" ? "sep" : ""}">${esc(SRC[s.kind] || s.kind)}</span>${s.revid ? ` <span class="muted">rev. ${esc(s.revid)}</span>` : ""}
+      ${f.sources.length > 1 ? ` <span class="muted">+${f.sources.length - 1} more</span>` : ""}` : "";
+    return `<div class="f">
+      <div class="text">${esc(f.text)}</div>
+      <div class="chips">${f.kind === "question" ? `<span class="chip">open question</span>` :
+        `<span class="chip ${f.stance}">${f.stance}</span><span class="chip ${f.relevance === "off_topic" ? "off_topic" : ""}">${f.relevance.replace("_", " ")}</span>
+         <span class="chip">${esc(f.certainty)}</span>${f.status !== "new" ? `<span class="chip">${esc(f.status)} #${f.relates_to}</span>` : ""}
+         ${f.judged_by ? "" : `<span class="chip warn">not yet judged</span>`}`}
+        <span class="chip">${esc(f.topic)}</span></div>
+      ${s && s.excerpt ? `<div class="quote">“${esc(s.excerpt)}”</div>` : ""}
+      ${f.reason ? `<div class="why">Judge: ${esc(f.reason)}</div>` : ""}
+      <div class="meta">${src} · ${when(f.created_at)} · #${f.id}</div>
+    </div>`;
+  }).join("") || `<div class="muted">Nothing matches.</div>`;
+  $("#fCount").textContent = r.total ? `${fOffset + 1}–${Math.min(fOffset + PAGE, r.total)} of ${r.total}` : "";
+  $("#fPrev").disabled = fOffset === 0; $("#fNext").disabled = fOffset + PAGE >= r.total;
+}
+
+// ---- sessions ---------------------------------------------------------------------------------------
+async function loadSessions() {
+  const ss = await get("/api/sessions");
+  const date = iso => new Date(iso).toLocaleString([], {weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"});
+  $("#sessBody").innerHTML = ss.map(s => {
+    const t = s.totals, len = ((s.end ? new Date(s.end) : new Date()) - new Date(s.start)) / 1000;
+    return `<tr><td>${date(s.start)}${s.active ? ` <span class="chip supports">running</span>` : ""}</td><td>${hm(len)}</td>
+      <td class="n">${s.cycles}</td><td class="n">${t.new ?? 0}</td><td class="n">${t.off_topic ?? 0}</td><td class="n">${t.rejected ?? 0}</td>
+      <td class="n">${t.supports ?? "–"} / ${t.challenges ?? "–"}</td><td class="n">${t.relations ?? 0}</td>
+      <td>${s.end ? esc(s.reason || "ended") : ""}</td></tr>
+      ${s.summary ? `<tr class="sum"><td colspan="9">${esc(s.summary)}</td></tr>` : ""}`;
+  }).join("") || `<tr><td colspan="9" class="muted">No sessions yet.</td></tr>`;
+}
+
+// ---- notable ------------------------------------------------------------------------------------------
+["#nKind", "#nShow"].forEach(id => $(id).onchange = loadNotable);
+async function loadNotable() {
+  const ns = await get(`/api/notable?kind=${$("#nKind").value}&show=${$("#nShow").value}`);
+  $("#nCount").textContent = `${ns.length} shown`;
+  $("#nList").innerHTML = ns.map(n => `<div class="nb" id="nb${n.id}">
+      <span class="chip ${n.kind === "contradiction" ? "challenges" : "sep"}">${n.kind === "contradiction" ? "contradiction" : "link between topics"}</span>
+      ${n.topics.map(t => `<span class="chip">${esc(t)}</span>`).join(" ")} <span class="muted">${when(n.created_at)}</span>
+      ${n.kind === "cross_topic" ? `<div style="margin-top:6px">${esc(n.title)}</div>` : ""}
+      <div class="pair">${n.findings.map(f => `<div>${esc(f.text)}${f.source ? `<div class="meta">${f.source.url ? `<a href="${esc(f.source.url)}" target="_blank" rel="noopener">${esc(f.source.title)}</a>` : esc(f.source.title)} · ${esc(f.topic)}</div>` : ""}</div>`).join("")}</div>
+      <div style="margin-top:8px">${n.reviewed_at ? `<span class="muted">reviewed ${when(n.reviewed_at)}</span>` : `<button class="btn" data-review="${n.id}">Mark reviewed</button>`}</div>
+    </div>`).join("") || `<div class="muted">Nothing to review.</div>`;
+  document.querySelectorAll("button[data-review]").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    const r = await fetch(`/api/notable/${b.dataset.review}/reviewed`, {method: "POST"});
+    if (r.ok) { $("#nb" + b.dataset.review).style.opacity = .45; b.outerHTML = `<span class="muted">reviewed just now</span>`; }
+    else b.disabled = false;
+  });
+}
+
+// ---- concept graph: a small force-directed layout, no libraries --------------------------------------
+const SVGNS = "http://www.w3.org/2000/svg";
+let G = null, gSel = null, gView = {x: 0, y: 0, k: 1}, gAnim = 0, gFit = true;   // gFit: keep it all in view until the user pans / zooms
+["#gTopic", "#gLimit", "#gVague"].forEach(id => $(id).onchange = loadGraph);
+async function loadGraph() {
+  if (!topicList.length) await loadTopics();
+  const sel = $("#gTopic"), keep = sel.value;
+  sel.innerHTML = `<option value="">All topics</option>` + topicList.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  sel.value = keep;
+  const d = await get(`/api/graph?topic=${sel.value}&limit=${$("#gLimit").value}&vague=${$("#gVague").checked ? 1 : 0}`);
+  $("#gCount").textContent = `${d.nodes.length} of ${d.total_concepts} concepts, ${d.edges.length} links`;
+  const svg = $("#gsvg"), W = svg.clientWidth || 800, H = svg.clientHeight || 600;
+  const byId = new Map();
+  d.nodes.forEach((n, i) => { const a = i * 2.4; n.x = W / 2 + Math.cos(a) * (40 + i * 2); n.y = H / 2 + Math.sin(a) * (40 + i * 2);
+                              n.vx = 0; n.vy = 0; n.r = 4 + Math.sqrt(n.degree) * 1.6; byId.set(n.id, n); });
+  const edges = d.edges.map(e => ({...e, a: byId.get(e.s), b: byId.get(e.o)})).filter(e => e.a && e.b);
+  G = {nodes: d.nodes, edges, W, H};
+  gView = {x: 0, y: 0, k: 1}; gFit = true;
+  svg.innerHTML = "";
+  const root = document.createElementNS(SVGNS, "g"); root.id = "groot"; svg.appendChild(root);
+  edges.forEach(e => { const l = document.createElementNS(SVGNS, "line"); l.setAttribute("class", "edge");
+                       l.setAttribute("stroke-width", Math.min(3, .6 + e.n * .4)); e.el = l; root.appendChild(l); });
+  d.nodes.forEach(n => {
+    const c = document.createElementNS(SVGNS, "circle"); c.setAttribute("class", "node"); c.setAttribute("r", n.r);
+    c.onclick = ev => { ev.stopPropagation(); pickConcept(n); };
+    const t = document.createElementNS(SVGNS, "text"); t.textContent = n.name; t.setAttribute("dx", n.r + 3); t.setAttribute("dy", 4);
+    n.el = c; n.label = t; root.appendChild(c); root.appendChild(t);
+  });
+  cancelAnimationFrame(gAnim);
+  let step = 0;
+  const tick = () => {
+    const N = G.nodes;
+    for (let i = 0; i < N.length; i++) for (let j = i + 1; j < N.length; j++) {          // repulsion
+      const a = N[i], b = N[j]; let dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy + 0.01;
+      const f = 900 / d2; dx *= f; dy *= f; a.vx += dx; a.vy += dy; b.vx -= dx; b.vy -= dy;
+    }
+    for (const e of G.edges) {                                                             // springs
+      const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y, dist = Math.sqrt(dx * dx + dy * dy) + 0.01, f = (dist - 60) * 0.02;
+      e.a.vx += dx / dist * f; e.a.vy += dy / dist * f; e.b.vx -= dx / dist * f; e.b.vy -= dy / dist * f;
+    }
+    const cool = Math.max(0.05, 1 - step / 300);
+    for (const n of N) {                                                                   // gravity to centre
+      n.vx += (G.W / 2 - n.x) * 0.01; n.vy += (G.H / 2 - n.y) * 0.01;
+      n.x += Math.max(-8, Math.min(8, n.vx)) * cool; n.y += Math.max(-8, Math.min(8, n.vy)) * cool; n.vx *= 0.6; n.vy *= 0.6;
+    }
+    drawGraph();
+    if (++step < 320 && view === "graph") gAnim = requestAnimationFrame(tick);
+  };
+  tick();
+}
+function fitGraph() {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of G.nodes) { x0 = Math.min(x0, n.x - n.r); y0 = Math.min(y0, n.y - n.r); x1 = Math.max(x1, n.x + 90); y1 = Math.max(y1, n.y + n.r); }
+  if (!isFinite(x0)) return;
+  const pad = 20, k = Math.min(2, (G.W - 2 * pad) / (x1 - x0), (G.H - 2 * pad) / (y1 - y0));
+  gView = {k, x: pad - x0 * k + ((G.W - 2 * pad) - (x1 - x0) * k) / 2, y: pad - y0 * k + ((G.H - 2 * pad) - (y1 - y0) * k) / 2};
+}
+function drawGraph() {
+  if (gFit) fitGraph();
+  for (const e of G.edges) { e.el.setAttribute("x1", e.a.x); e.el.setAttribute("y1", e.a.y); e.el.setAttribute("x2", e.b.x); e.el.setAttribute("y2", e.b.y); }
+  for (const n of G.nodes) { n.el.setAttribute("cx", n.x); n.el.setAttribute("cy", n.y); n.label.setAttribute("x", n.x); n.label.setAttribute("y", n.y); }
+  $("#groot").setAttribute("transform", `translate(${gView.x},${gView.y}) scale(${gView.k})`);
+}
+async function pickConcept(n) {
+  if (gSel) gSel.el.classList.remove("sel"); gSel = n; n.el.classList.add("sel");
+  const c = await get("/api/concept?id=" + n.id);
+  $("#gside").innerHTML = `<h3 style="margin:0 0 4px">${esc(c.name)}</h3>
+    ${c.aliases.length ? `<div class="muted">also: ${c.aliases.map(esc).join(", ")}</div>` : ""}
+    <div class="muted" style="margin:6px 0">${c.relations.length} links</div>
+    ${c.relations.map(r => `<div class="rel"><b>${esc(r.subject)}</b> <span class="p">${esc(r.predicate.replace("_", " "))}</span> <b>${esc(r.object)}</b>
+      <div class="muted">${esc(r.finding)} · ${esc(r.topic)}</div></div>`).join("")}`;
+}
+(() => {                                                                                    // pan + zoom
+  const svg = $("#gsvg"); let drag = null;
+  svg.addEventListener("mousedown", e => { drag = {x: e.clientX - gView.x, y: e.clientY - gView.y, sx: e.clientX, sy: e.clientY}; svg.style.cursor = "grabbing"; });
+  window.addEventListener("mouseup", () => { drag = null; svg.style.cursor = "grab"; });
+  svg.addEventListener("mousemove", e => { if (drag && G && Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 3) {
+    gFit = false; gView.x = e.clientX - drag.x; gView.y = e.clientY - drag.y; drawGraph(); } });
+  svg.addEventListener("wheel", e => { if (!G) return; e.preventDefault(); gFit = false;
+    const k = Math.max(0.3, Math.min(4, gView.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12))), r = svg.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    gView.x = mx - (mx - gView.x) * k / gView.k; gView.y = my - (my - gView.y) * k / gView.k; gView.k = k; drawGraph(); }, {passive: false});
+})();
+
+loadStatus(); loadEvents();
+setInterval(loadStatus, 10000);
+setInterval(() => { if (view === "now") loadEvents(); }, 5000);
+</script>
+</body>
+</html>

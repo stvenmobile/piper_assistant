@@ -34,7 +34,7 @@ from piper_memory.embed import EmbedError, normalise
 from piper_memory.schema import CERTAINTY
 from piper_research import prompts as P
 from piper_research.llm import LLMError, OllamaChat
-from piper_research.verify import find_quote, norm
+from piper_research.verify import find_quote, norm, tidy_remark
 from piper_research.wiki import Wikipedia, passages
 
 
@@ -498,8 +498,8 @@ class Researcher:
                 + "\nFindings:\n" + P.numbered(lines))
         r = self.llm.json(P.REFLECT, user, P.REFLECT_SCHEMA, think=self.judge_think)
         for kind in ("position", "learned", "unsure"):
-            if r.get(kind, "").strip():
-                self.mem.set_remark(kind, " ".join(r[kind].split()), topic_id=tid)
+            if tidy_remark(r.get(kind, "")):
+                self.mem.set_remark(kind, tidy_remark(r[kind]), topic_id=tid)
         src = self.mem.source("llm", self.llm.model)
         known = {norm(t) for t in self.open_questions(tid)} | self.asked(tid)
         for nq in (r.get("next_questions") or [])[:min(3, self.room_for_questions(tid))]:
@@ -523,7 +523,7 @@ class Researcher:
             "SELECT text FROM remarks WHERE kind = 'learned' AND written_at >= ? AND superseded_by IS NULL", (since_iso,))]
         user = "This session's research cycles:\n" + P.numbered(lines) + ("\n\nThings you noted:\n" + P.numbered(learned) if learned else "")
         r = self.llm.json(P.OVERNIGHT, user, P.OVERNIGHT_SCHEMA)
-        text = " ".join(r.get("summary", "").split())
+        text = tidy_remark(r.get("summary", ""))
         if text:
             self.mem.set_remark("overnight", text)
             self.mem.log("overnight", cycles=len(rows), summary=text)

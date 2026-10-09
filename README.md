@@ -99,6 +99,7 @@ piper_assistant/
 │   ├── piper_brain/         config, supervisor, quick responder, tools, state, journal
 │   ├── piper_memory/        research memory: SQLite store, embeddings, concept graph, seeds
 │   ├── piper_research/      the research loop and its scheduler (section 5.5)
+│   ├── piper_dashboard/     read-only web view of the research memory (section 5.6)
 │   ├── piper_geometry/      research: residual-stream extraction (continues in curious-george)
 │   └── piper_tools/         research: Obsidian vault and reading-dashboard builders
 ├── tests/                   unit tests (pytest)
@@ -203,7 +204,24 @@ A session can also be started by hand: `python3 src/piper_research/service.py --
 `--session 2` for two hours). For timed research instead, set `research.windows` in `config.yaml`
 (several allowed; a window may cross midnight) or `PIPER_RESEARCH_WINDOWS="01:00-08:00"`.
 
-### 5.6 Tests
+### 5.6 Dashboard
+
+`start_piper.sh` also starts a small read-only web dashboard (`src/piper_dashboard/`, standard
+library only) on port 8080: open `http://<jetson-ip>:8080/` from any device on the home network.
+
+| View | Shows |
+|---|---|
+| Now | what Piper is researching, the session's progress, the live activity feed |
+| Topics | each topic's thesis, the supports / neutral / challenges balance, her position and remarks, open questions |
+| Findings | every finding, filterable by topic, stance, relevance and source, with its quote, the judge's reason and a link to the exact page revision |
+| Sessions | one row per research session: cycles, new findings, off-topic, rejected, the session summary |
+| Notable | contradictions and links between topics, with a "mark reviewed" button (its only write) |
+| Graph | the concept graph: click a concept for its links and the findings behind them |
+
+Keep it on the home network: the topics are personal. It can also run on another machine against
+a copied database: `python3 src/piper_dashboard/server.py --db path/to/piper_memory.db`.
+
+### 5.7 Tests
 
 The unit tests need no audio hardware, GPU or models, so they run on any machine:
 
