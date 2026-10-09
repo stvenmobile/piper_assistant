@@ -165,7 +165,9 @@ trigger her. Research, vision and the head run as usual, and `q` + Enter stops i
 
 ### 5.5 Research
 
-In its scheduled hours (`research.windows`, default `20:00-08:00` local time) Piper researches
+In a research **session** (`./start_quiet.sh` starts one: research from that moment for
+`research.session_hours`, default 8, then a summary and stop; start quiet mode again for another),
+or inside timed windows if you set `research.windows` (none by default), Piper researches
 the topics in her memory (`piper_memory`). Each cycle she:
 - picks a topic, favouring stale, thin and evenly-argued ones;
 - picks or writes a question;
@@ -197,8 +199,9 @@ Two maintenance commands:
 - `--tidy` prunes the open questions to `research.max_open_questions` per topic and marks the old
   cross-topic flags as reviewed.
 
-To change the hours, set `research.windows` in `config.yaml` (several windows are allowed, and
-a window may cross midnight) or set `PIPER_RESEARCH_WINDOWS="01:00-08:00,13:00-14:00"`.
+A session can also be started by hand: `python3 src/piper_research/service.py --session` (or
+`--session 2` for two hours). For timed research instead, set `research.windows` in `config.yaml`
+(several allowed; a window may cross midnight) or `PIPER_RESEARCH_WINDOWS="01:00-08:00"`.
 
 ### 5.6 Tests
 

@@ -1,8 +1,14 @@
 """
-The research service: runs research cycles inside the scheduled windows, and when a window
-ends writes the overnight summary (a remark Piper can say in the morning).
+The research service. Two ways to run:
+  * a SESSION (--session): research from now for research.session_hours (default 8), then write
+    the session summary (a remark Piper can say) and stop. start_quiet.sh starts one - Piper
+    is quiet, so the PC's model is free. Review the results, then start another when you like.
+  * timed WINDOWS (research.windows, none by default): research inside them, a summary as each
+    one closes. Without windows and without --session the service has nothing to do and exits.
 
-    python3 src/piper_research/service.py                   the service (start_piper.sh starts it)
+    python3 src/piper_research/service.py --session         an 8-hour session from now
+    python3 src/piper_research/service.py --session 2       ... a 2-hour one
+    python3 src/piper_research/service.py                   timed windows (start_piper.sh starts it)
     python3 src/piper_research/service.py --now --once      one cycle now, whatever the time
         --topic "How migrating birds navigate"              ... on this topic
         --cycles 5                                          ... this many cycles, then stop
@@ -56,6 +62,8 @@ def utc_now() -> str:
 def main():
     ap = argparse.ArgumentParser(description="Piper's research loop")
     ap.add_argument("--now", action="store_true", help="ignore the schedule")
+    ap.add_argument("--session", type=float, nargs="?", const=-1, default=None, metavar="HOURS",
+                    help="research from now for HOURS (default research.session_hours), then summarise and stop")
     ap.add_argument("--once", action="store_true", help="one cycle, then stop")
     ap.add_argument("--cycles", type=int, default=0, help="stop after this many cycles")
     ap.add_argument("--topic", help="research this topic (by name)")
@@ -108,10 +116,32 @@ def main():
         print(f"[Research] Overnight: {r.overnight(since)}")
         return
 
+    session_end = None
+    if args.session is not None:
+        hours = cfg["session_hours"] if args.session < 0 else args.session
+        session_end = time.monotonic() + hours * 3600
+        args.now = True
+        until = datetime.now() + timedelta(hours=hours)
+        print(f"[Research] Session: {hours:g} h, until about {until:%H:%M} (the cycle in progress then finishes)")
+    elif not args.now and not schedule.windows:
+        print("[Research] No research windows set - nothing to do (start_quiet.sh starts a session)")
+        return
+
     print(f"[Research] {cfg['model']} via {llm.url}; schedule {'ignored' if args.now else schedule};"
           f" memory {mem.path}")
     night_start, cycles, announced = None, 0, False
+
+    def finish(why: str):
+        try:
+            text = r.overnight(night_start)
+            print(f"[Research] {why} after {cycles} cycles. Summary: {text}")
+        except (LLMError, EmbedError) as e:
+            print(f"[Research] {why} after {cycles} cycles; summary failed: {e}")
+        mem.log("research_ended", cycles=cycles, reason=why)
+
     while not stop:
+        if session_end is not None and time.monotonic() >= session_end:
+            break
         if args.now or schedule.active(datetime.now()):
             if night_start is None:
                 night_start = utc_now()
@@ -159,18 +189,15 @@ def main():
             announced = False
         else:
             if night_start is not None:             # the window just closed
-                try:
-                    text = r.overnight(night_start)
-                    print(f"[Research] Window closed after {cycles} cycles. Overnight: {text}")
-                except (LLMError, EmbedError) as e:
-                    print(f"[Research] Overnight summary failed: {e}")
-                mem.log("research_ended", cycles=cycles)
+                finish("Window closed")
                 night_start, cycles = None, 0
             if not announced:
                 nxt = schedule.next_start(datetime.now())
                 print(f"[Research] Waiting - next window {nxt:%a %H:%M}" if nxt else "[Research] No window scheduled")
                 announced = True
             nap(30)
+    if night_start is not None and cycles and not args.cycles:     # a session ended, or Piper stopped
+        finish("Session ended" if session_end is not None and not stop else "Stopped")
     mem.close()
 
 

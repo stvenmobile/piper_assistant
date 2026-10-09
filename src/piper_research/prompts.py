@@ -176,7 +176,8 @@ REFLECT_SCHEMA = {"type": "object",
 
 # ---- 5. the morning summary -----------------------------------------------------------------------
 OVERNIGHT = ROLE + """
-Summarise your night of research for when people wake up. Write as Piper, first person, warm
+Summarise your research session (it may have run by day or by night - don't say "tonight") for
+the people who'll ask what you've been up to. Write as Piper, first person, warm
 and plain, said aloud: no lists, and don't name every topic - one or two highlights. Keep claims
 calibrated: "some reports say", "researchers think" for anything disputed or speculative.
 At most 60 words."""

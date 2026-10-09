@@ -59,10 +59,18 @@ if [[ "${VISION_ENABLED}" == "True" ]]; then
     echo "[Vision] Service started (pid ${VISION_PID})"
 fi
 
-# 6. Research (in its scheduled hours - research.windows, default 20:00-08:00), also in the background
+# 6. Research, in the background. Quiet mode: a research SESSION from now (research.session_hours,
+#    default 8), then it stops - restart quiet mode for another. Interactive mode: only in timed
+#    windows, if any are set (none by default), so the PC's model stays free for conversation.
+QUIET=false
+for a in "$@"; do [[ "$a" == "--quiet" || "$a" == "/quiet" || "$a" == "-q" ]] && QUIET=true; done
 RESEARCH_ENABLED="$(python3 -c 'import sys; sys.path.insert(0, "src"); from piper_brain.config import CONFIG; print(CONFIG["research"]["enabled"])' 2>/dev/null || echo False)"
 if [[ "${RESEARCH_ENABLED}" == "True" ]]; then
-    python3 src/piper_research/service.py &
+    if [[ "${QUIET}" == "true" ]]; then
+        python3 src/piper_research/service.py --session &
+    else
+        python3 src/piper_research/service.py &
+    fi
     RESEARCH_PID=$!
     trap 'kill ${HEAD_PID:-} ${VISION_PID:-} ${RESEARCH_PID} 2>/dev/null || true' EXIT
     echo "[Research] Service started (pid ${RESEARCH_PID})"

@@ -98,7 +98,9 @@ DEFAULTS: dict = {
     },
     "research": {                         # piper_research: the research loop (a background service)
         "enabled": True,
-        "windows": ["20:00-08:00"],       # local time, when research runs; several allowed; a window
+        "session_hours": 8,               # a research SESSION (start_quiet.sh starts one): research from the
+                                          #   moment Piper starts, stop after this long, write the summary
+        "windows": [],                    # optional timed windows instead ([] = none), local time; a window
                                           #   may cross midnight ("22:00-06:00"). Env: "01:00-08:00,13:00-14:00"
         "days": "daily",                  # or a list: ["mon", "tue", ...] (the day a window starts on)
         "url": None,                      # Ollama for the reasoning model; None = llm.base_url (the PC)
