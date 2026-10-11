@@ -4,7 +4,7 @@
 for its name, answers simple questions instantly on the device, hands everything else to a language model on the local network, and speaks the reply with a natural neural voice. No cloud services are involved apart from a weather lookup.
 
 This repository is Piper's **runtime** - the program that runs on the Jetson. It is being
-extended to give Piper a body: **[piper-watch](https://github.com/stvenmobile/piper-watch)**, a small robot head with a camera and a glowing light ring, so Piper can **see** who is there, **turn to look** at them, **recognise** people it knows, and **show** what it is doing and how it "feels" (section 6).
+extended to give Piper a body: **[piper-watch](https://github.com/stvenmobile/piper-watch)**, a small robot head with a camera, round display eyes and an OLED mouth, so Piper can **see** who is there, **turn to look** at them, **recognise** people it knows, and **show** what it is doing and how it "feels" (section 6).
 
 Piper's research side - curiosity, choosing what to study and checking whether studying worked - continues in **[curious-george](https://github.com/stvenmobile/curious-george)**, which will later connect to this runtime (section 9).
 
@@ -21,7 +21,7 @@ Piper's research side - curiosity, choosing what to study and checking whether s
 | Research dashboard (reports, insights and their trails, topics and mastery)        | **Working** - section 5.6                  |
 | Unit tests (config, audio, state, research memory and loop, synthesis, rhythm, mastery, dashboard) | **Working** - `pytest`    |
 | SP-200 speakerphone (microphone + speaker with echo cancellation)                 | Next: set the device names                 |
-| piper-watch head: light ring states, head link                                    | Planned - roadmap phase 1                  |
+| piper-watch head: eyes and mouth, pan base, head link                             | Being built (head link service written)    |
 | Pan motor and face tracking                                                       | Planned - phases 2-3                       |
 | Face recognition (who is there) replacing "my name is ..."                        | Planned - phase 3                          |
 | curious-george connection (idle-time curiosity)                                   | Planned - phase 5                          |
@@ -35,7 +35,11 @@ Piper's research side - curiosity, choosing what to study and checking whether s
 | **NVIDIA Jetson Orin NX 16 GB** in a Seeed **reComputer J4012**       | runs everything here (Ubuntu 22.04, JetPack 6.1, CUDA 12.6)                                                                           |
 | **SP-200 USB speakerphone** (4-mic array, hardware echo cancellation) | microphone and speaker; sits on the desk wherever is convenient. Until it is configured, a USB microphone and a USB speaker are used. |
 | **Ollama** server on the local network (`llama3.2:latest`, the 3B model)                | the language model for anything the quick responder can't answer                                                                      |
-| **piper-watch** (planned)                                             | the robot head: camera, light ring, pan motor - sits on top of the reComputer                                                         |
+| **piper-watch** base (being built): ESP32-S3 + TMC2209 + NEMA17       | pans the head (belt and lazy-Susan bearing, Hall-sensor homing); sits on top of the reComputer                                         |
+| **piper-watch** head (being built): XIAO ESP32-S3                     | drives the face over one SPI bus; USB to the Jetson                                                                                   |
+| two 1.28" round **GC9A01** TFTs (240 x 240)                           | the eyes                                                                                                                              |
+| 2.08" **SH1122** OLED (256 x 64)                                      | the mouth                                                                                                                             |
+| Logitech **C920** camera board                                        | the nose - vision (who is there, where to look); USB to the Jetson                                                                    |
 
 ---
 
@@ -278,6 +282,11 @@ python3 -m pytest
 
 ## 6. Integration with piper-watch (planned)
 
+> **Design change:** the light ring is gone. The head now has two round display **eyes** (GC9A01),
+> an OLED **mouth** (SH1122) and the camera as its **nose**, driven by a XIAO ESP32-S3 in the head;
+> the base keeps the pan motor. The rest of this section still describes the ring design and will
+> be rewritten once the head is printed and built.
+
 **piper-watch** is Piper's head. It sits on top of the reComputer and turns left and right (about ±100°) on a lazy-Susan bearing, driven by a stepper motor and belt. Its round face has the **camera lens** in the middle, framed by a **24-LED light ring** behind a diffuser. An **ESP32-S3** in the base drives the motor and the ring; the camera, the ESP32 and the SP-200 all plug into the Jetson's USB ports. There are deliberately no eyes or mouth: the ring is the face, and Piper's voice comes from the speakerphone.
 
 The head adds two things to Piper: **seeing** (the camera) and **showing** (the light ring and where the head points).
@@ -399,6 +408,6 @@ The assistant and vision talk to the head link over a local socket with the same
 ## 9. Related projects
 
 - **[piper-watch](https://github.com/stvenmobile/piper-watch)** - the robot head: hardware
-  design, CAD, and the ESP32-S3 firmware (motor, light ring, protocol).
+  design, CAD, and the firmware (pan motor, eyes and mouth, protocol).
 - **[curious-george](https://github.com/stvenmobile/curious-george)** - research into machine curiosity: choosing what to study and measuring whether studying it taught the model anything. It exposes its tools through an **MCP server**; the plan is for this runtime to use them while Piper is idle (choose a topic, study it, log what was learned), to talk about what it has been curious about, and to show it on the ring ("curious" mood). Where study runs
   (Jetson, PC GPU or Colab) and how learned adapters reach Ollama are still open.
