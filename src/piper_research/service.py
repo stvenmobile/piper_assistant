@@ -1,15 +1,15 @@
 """
-The research service. Two ways to run:
-  * a SESSION (--session): research from now for research.session_hours, then write the session
-    summary (a remark Piper can say) and stop. session_hours 0 (the default) = no end: research
-    until stopped, with a summary every research.summary_hours. start_quiet.sh starts one - Piper
-    is quiet, so the PC's model is free.
+The research service. Ways to run:
+  * the RHYTHM (--session with research.session_hours 0, the default - start_quiet.sh starts it):
+    research with no end, in a daily structure (rhythm.py): explore, pause during working hours,
+    consolidate before dawn, a daily report at 07:00, a weekly one and topic decisions on Sundays.
+  * a SESSION of fixed length (--session HOURS): research for that long, then write the session
+    summary (a remark Piper can say) and stop.
   * timed WINDOWS (research.windows, none by default): research inside them, a summary as each
     one closes. Without windows and without --session the service has nothing to do and exits.
 
-    python3 src/piper_research/service.py --session         a session from now (research.session_hours)
-    python3 src/piper_research/service.py --session 2       ... a 2-hour one
-    python3 src/piper_research/service.py --session 0       ... one with no end (summary every 12 h)
+    python3 src/piper_research/service.py --session         the rhythm (research.session_hours 0)
+    python3 src/piper_research/service.py --session 2       a 2-hour session, then stop
     python3 src/piper_research/service.py                   timed windows (start_piper.sh starts it)
     python3 src/piper_research/service.py --now --once      one cycle now, whatever the time
         --topic "How migrating birds navigate"              ... on this topic
@@ -38,6 +38,7 @@ from piper_memory import EmbedError, open_memory      # noqa: E402
 from piper_memory.seeds import load_seeds             # noqa: E402
 from piper_research import (Interrupted, LLMError, OllamaChat, Researcher, Schedule, Wikipedia,  # noqa: E402
                             WikiError)
+from piper_research.rhythm import Curator, Rhythm       # noqa: E402
 from piper_research.sep import SEP                      # noqa: E402
 
 stop = False
@@ -59,6 +60,128 @@ def nap(seconds: float):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _research_step(r, mem, cfg) -> str:
+    """One step (research or synthesis) with the usual error handling: 'ok' | 'stop' | 'retry'."""
+    try:
+        r.step()
+    except Interrupted:
+        return "stop"
+    except (LLMError, WikiError, EmbedError) as e:
+        print(f"[Research] {e} - retrying in 5 min")
+        mem.log("research_error", error=str(e))
+        nap(300)
+        return "retry"
+    except LookupError as e:
+        print(f"[Research] {e}")
+        nap(600)
+        return "retry"
+    except Exception as e:
+        traceback.print_exc()
+        mem.log("research_error", error=f"{type(e).__name__}: {e}")
+        nap(60)
+        return "retry"
+    if cfg["rejudge_per_cycle"] and r.unjudged():      # catch up on findings from before the judge
+        try:
+            r.rejudge(limit=cfg["rejudge_per_cycle"])
+        except Interrupted:
+            return "stop"
+        except (LLMError, EmbedError) as e:
+            print(f"[Research] Rejudging failed: {e}")
+    return "ok"
+
+
+def run_rhythm(r, mem, cfg):
+    """Research with no end, in the daily rhythm (rhythm.py). Reports are written only for days the
+    service was running at report time (no catching up on start)."""
+    rh, cur = Rhythm(cfg["rhythm"]), Curator(r)
+    started = datetime.now()
+    print(f"[Research] Rhythm: {rh.describe()}. Ctrl+C stops")
+    state = {"day_start": None, "cycles": 0, "block_t": time.monotonic(), "block_cycles": 0, "phase": None}
+
+    def open_day():
+        if state["day_start"] is None:
+            state["day_start"] = utc_now()
+            r.new_window()
+            mem.log("research_started", model=cfg["model"], session_hours=None, rhythm=rh.describe())
+            try:
+                if n := mem.backfill_embeddings():
+                    print(f"[Research] Embedded {n} items stored while Ollama was away")
+            except EmbedError:
+                pass
+
+    def last_local_date(kind: str) -> str | None:
+        row = mem.db.execute("SELECT ts FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1", (kind,)).fetchone()
+        return datetime.fromisoformat(row[0]).astimezone().date().isoformat() if row else None
+
+    def daily_reported_today(today: str) -> bool:
+        return any(datetime.fromisoformat(x["created_at"]).astimezone().date().isoformat() == today
+                   for x in mem.reports("daily", limit=1))
+
+    while not stop:
+        now = datetime.now()
+        today = now.date().isoformat()
+        rt = rh.report_time(now)
+        if now >= rt and started < rt and not daily_reported_today(today):          # REPORT
+            open_day()
+            prev = mem.reports("daily", limit=1)
+            since = prev[0]["period_end"] if prev else state["day_start"]
+            until = utc_now()
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=4)).isoformat(timespec="seconds")
+            decisions = [e for e in mem.events() if e["kind"] == "topic_decision" and e["ts"] >= cutoff]
+            try:
+                rid = cur.daily_report(since, until, decisions)
+                print(f"[Research] Daily report #{rid} written")
+                if rh.is_weekly(now):
+                    week = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat(timespec="seconds")
+                    print(f"[Research] Weekly report #{cur.weekly_report(week, until, decisions)} written")
+            except Exception as e:
+                traceback.print_exc()
+                mem.log("research_error", error=f"report: {type(e).__name__}: {e}"[:200])
+            mem.log("research_ended", cycles=state["cycles"], reason="Daily report")
+            state["day_start"], state["cycles"] = None, 0
+            continue
+        phase = rh.phase(now)
+        if phase != state["phase"]:
+            print(f"[Research] Phase: {phase}")
+            mem.log("phase", phase=phase)
+            state["phase"] = phase
+        if phase == "pause":
+            nap(60)
+            continue
+        if phase == "consolidate":
+            if last_local_date("consolidated") != today:
+                open_day()
+                end = now.replace(hour=rh.consolidate[1] // 60, minute=rh.consolidate[1] % 60, second=0, microsecond=0)
+                if end <= now:
+                    end += timedelta(days=1)
+                print(f"[Research] Consolidating until {end:%H:%M}" + (" (weekly topic decisions too)" if rh.is_weekly(now) else ""))
+                try:
+                    out = cur.consolidate(time.monotonic() + (end - now).total_seconds(), weekly=rh.is_weekly(now),
+                                          should_stop=lambda: stop)
+                    print(f"[Research] Consolidated: {out}")
+                except Interrupted:
+                    break
+                except Exception as e:
+                    traceback.print_exc()
+                    mem.log("research_error", error=f"consolidate: {type(e).__name__}: {e}"[:200])
+                    mem.log("consolidated", error=str(e)[:200])
+            nap(30)
+            continue
+        open_day()                                                                  # EXPLORE
+        result = _research_step(r, mem, cfg)
+        if result == "stop":
+            break
+        if result == "ok":
+            state["cycles"] += 1
+            state["block_cycles"] += 1
+        if time.monotonic() - state["block_t"] >= rh.block:                         # hourly CHECKPOINT
+            cur.checkpoint(state["block_cycles"])
+            state["block_t"], state["block_cycles"] = time.monotonic(), 0
+        nap(cfg["pause_s"])
+    if state["day_start"] is not None:
+        mem.log("research_ended", cycles=state["cycles"], reason="Stopped")
 
 
 def main():
@@ -118,24 +241,26 @@ def main():
         print(f"[Research] Overnight: {r.overnight(since)}")
         return
 
-    session_end, chunk = None, None
+    session_end = None
     if args.session is not None:
         hours = cfg["session_hours"] if args.session < 0 else args.session
         args.now = True
-        if hours > 0:
-            session_end = time.monotonic() + hours * 3600
+        if hours <= 0 and not args.cycles:
+            print(f"[Research] {cfg['model']} via {llm.url}; memory {mem.path}")
+            run_rhythm(r, mem, cfg)
+            mem.close()
+            return
+        session_end = time.monotonic() + hours * 3600 if hours > 0 else None
+        if session_end:
             until = datetime.now() + timedelta(hours=hours)
             print(f"[Research] Session: {hours:g} h, until about {until:%H:%M} (the cycle in progress then finishes)")
-        else:
-            chunk = cfg["summary_hours"] * 3600
-            print(f"[Research] Session with no end - a summary every {cfg['summary_hours']:g} h; Ctrl+C stops")
     elif not args.now and not schedule.windows:
         print("[Research] No research windows set - nothing to do (start_quiet.sh starts a session)")
         return
 
     print(f"[Research] {cfg['model']} via {llm.url}; schedule {'ignored' if args.now else schedule};"
           f" memory {mem.path}")
-    night_start, cycles, announced, chunk_start = None, 0, False, 0.0
+    night_start, cycles, announced = None, 0, False
 
     def finish(why: str):
         try:
@@ -148,15 +273,12 @@ def main():
     while not stop:
         if session_end is not None and time.monotonic() >= session_end:
             break
-        if chunk and night_start is not None and time.monotonic() - chunk_start >= chunk:
-            finish("Summary checkpoint")             # an endless session: close this chunk, start the next
-            night_start, cycles = None, 0
         if args.now or schedule.active(datetime.now()):
             if night_start is None:
-                night_start, chunk_start = utc_now(), time.monotonic()
+                night_start = utc_now()
                 r.new_window()
                 mem.log("research_started", model=cfg["model"],
-                        session_hours=((cfg["session_hours"] if args.session < 0 else args.session) or None) if args.session is not None else None)
+                        session_hours=(cfg["session_hours"] if args.session < 0 else args.session) if args.session is not None else None)
                 print("[Research] Window open - researching")
                 try:
                     if n := mem.backfill_embeddings():
@@ -164,7 +286,7 @@ def main():
                 except EmbedError:
                     pass
             try:
-                r.cycle(args.topic)
+                r.step(args.topic)
                 cycles += 1
             except Interrupted:
                 break

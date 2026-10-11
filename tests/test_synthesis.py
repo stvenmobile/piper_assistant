@@ -9,7 +9,7 @@ from test_memory import FakeEmbedder
 from test_research import CFG, PAGE, FakeLLM, FakeWiki, finding
 
 SCFG = {**CFG, "synth_min_findings": 3, "synth_saturation": 0.5, "synth_every_max": 6, "synth_topic_gap": 3,
-        "max_derived_open": 10, "synth_near_min": 0.0}
+        "max_derived_open": 10, "synth_near_min": 0.0, "spawn_similarity": 0.3}
 
 
 class SynthLLM(FakeLLM):
