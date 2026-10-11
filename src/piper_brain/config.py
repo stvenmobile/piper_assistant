@@ -101,7 +101,8 @@ DEFAULTS: dict = {
         "session_hours": 0,               # a research SESSION (start_quiet.sh starts one). 0 = no end, in the
                                           #   daily RHYTHM below; N = research N hours, write the summary, stop
         "rhythm": {                       # research with no end, in a structure (piper_research/rhythm.py)
-            "pause": ["10:00-17:00"],     # leave the PC's GPU alone (working hours)
+            "pause": ["10:00-17:00"],     # leave the PC's GPU alone (working hours) ...
+            "pause_days": "weekdays",     # ... on these days: "weekdays", "daily", or a list ["mon", "tue", ...]
             "consolidate": "05:00-07:00", # no new reading: reflect, synthesize over everything, prune, review
             "report_at": "07:00",         # the daily report (dashboard + a remark Piper can say)
             "weekly_day": "sun",          # the weekly report and topic decisions (retire/rest/spawn/propose)

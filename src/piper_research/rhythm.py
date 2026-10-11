@@ -8,7 +8,7 @@ report. Local time; the defaults (config research.rhythm):
                                (retire, rest, wake, spawn a sub-topic, propose a new topic). Time
                                left over goes to the re-judging backlog
     07:00         REPORT       the daily report (and the weekly one on the weekly day)
-    10:00-17:00   PAUSE        the PC's GPU is left alone
+    10:00-17:00   PAUSE        the PC's GPU is left alone - weekdays only (pause_days)
     otherwise     EXPLORE      research and synthesis cycles (synthesis.py decides which), with a
                                CHECKPOINT every hour: topic stages updated, logged
 
@@ -35,6 +35,12 @@ def _in(window, now: datetime) -> bool:
 class Rhythm:
     def __init__(self, cfg: dict):
         self.pause = [parse_window(w) for w in cfg.get("pause", [])]
+        days = cfg.get("pause_days", "weekdays")
+        days = {"weekdays": DAYS[:5], "daily": DAYS}.get(days, days)
+        bad = [d for d in days if d[:3].lower() not in DAYS]
+        if bad:
+            raise ValueError(f"unknown pause days {bad} (use mon..sun, 'weekdays' or 'daily')")
+        self.pause_days = {DAYS.index(d[:3].lower()) for d in days}
         self.consolidate = parse_window(cfg.get("consolidate", "05:00-07:00"))
         h, m = map(int, cfg.get("report_at", "07:00").split(":"))
         self.report_at = (h, m)
@@ -44,9 +50,15 @@ class Rhythm:
     def phase(self, now: datetime) -> str:
         if _in(self.consolidate, now):
             return "consolidate"
-        if any(_in(w, now) for w in self.pause):
+        if any(_in(w, now) and self._pause_day(w, now) for w in self.pause):
             return "pause"
         return "explore"
+
+    def _pause_day(self, window, now: datetime) -> bool:
+        """A pause window belongs to the day it starts on (one crossing midnight runs into the next)."""
+        a, _ = window
+        started_yesterday = now.hour * 60 + now.minute < a
+        return (now.weekday() - started_yesterday) % 7 in self.pause_days
 
     def report_time(self, now: datetime) -> datetime:
         """Today's report time."""
@@ -58,7 +70,9 @@ class Rhythm:
     def describe(self) -> str:
         f = lambda w: f"{w[0] // 60:02d}:{w[0] % 60:02d}-{w[1] // 60:02d}:{w[1] % 60:02d}"
         return (f"consolidate {f(self.consolidate)}, report {self.report_at[0]:02d}:{self.report_at[1]:02d},"
-                f" pause {', '.join(f(w) for w in self.pause) or 'none'}, weekly on {DAYS[self.weekly_day]}")
+                f" pause {', '.join(f(w) for w in self.pause) or 'none'}"
+                f" ({'weekdays' if self.pause_days == set(range(5)) else ', '.join(DAYS[d] for d in sorted(self.pause_days))}),"
+                f" weekly on {DAYS[self.weekly_day]}")
 
 
 def _local_date(iso: str) -> str:

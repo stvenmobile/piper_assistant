@@ -173,7 +173,7 @@ research with no end, in a daily structure (`src/piper_research/rhythm.py`, `res
 |---|---|
 | 05:00-07:00 | **Consolidate** - no new reading: reflect on every topic researched since yesterday, a synthesis pass over every topic, prune stale questions, review insights; on Sundays the **topic decisions** (retire, rest, wake, spawn a sub-topic, propose a new topic). Spare time goes to the re-judging backlog |
 | 07:00 | **Daily report** (and the weekly one on Sundays) - on the dashboard, and a short version Piper can say |
-| 10:00-17:00 | **Pause** - the PC's GPU is left alone |
+| 10:00-17:00 | **Pause**, weekdays only (`pause_days`) - the PC's GPU is left alone. Weekends: explore |
 | otherwise | **Explore** - research and synthesis cycles, with a checkpoint every hour |
 
 Each research cycle, Piper researches the topics in her memory (`piper_memory`):

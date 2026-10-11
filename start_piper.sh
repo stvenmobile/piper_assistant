@@ -60,7 +60,7 @@ if [[ "${VISION_ENABLED}" == "True" ]]; then
 fi
 
 # 6. Research, in the background. Quiet mode: the research RHYTHM (research.session_hours 0): no end -
-#    explore, pause 10-17, consolidate 05-07, a daily report at 07:00 (research.rhythm). Interactive
+#    explore, pause 10-17 on weekdays, consolidate 05-07, a daily report at 07:00 (research.rhythm). Interactive
 #    mode: only in timed windows, if any are set (none by default), so the PC's model stays free.
 QUIET=false
 for a in "$@"; do [[ "$a" == "--quiet" || "$a" == "/quiet" || "$a" == "-q" ]] && QUIET=true; done

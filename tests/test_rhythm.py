@@ -7,8 +7,8 @@ from piper_research import prompts as P
 from piper_research.rhythm import Curator, Rhythm
 from test_synthesis import SCFG, insight, two_topics  # noqa: F401  (fixture)
 
-RCFG = {"pause": ["10:00-17:00"], "consolidate": "05:00-07:00", "report_at": "07:00", "weekly_day": "sun",
-        "block_minutes": 60}
+RCFG = {"pause": ["10:00-17:00"], "pause_days": "daily", "consolidate": "05:00-07:00", "report_at": "07:00",
+        "weekly_day": "sun", "block_minutes": 60}
 
 
 def at(hhmm: str, day: int = 11) -> datetime:          # 2026-10-11 is a Sunday
@@ -22,6 +22,25 @@ def test_phases_through_the_day():
         ["explore", "consolidate", "consolidate", "explore", "explore", "pause", "pause", "explore", "explore"]
     assert rh.report_time(at("12:34")) == at("07:00")
     assert rh.is_weekly(at("07:00")) and not rh.is_weekly(at("07:00", day=12))
+
+
+def test_the_pause_is_weekdays_only_by_default():
+    rh = Rhythm({k: v for k, v in RCFG.items() if k != "pause_days"})
+    assert rh.phase(at("12:00", day=12)) == "pause"          # Monday
+    assert rh.phase(at("12:00", day=16)) == "pause"          # Friday
+    assert rh.phase(at("12:00", day=17)) == "explore"        # Saturday
+    assert rh.phase(at("12:00", day=11)) == "explore"        # Sunday
+    assert rh.phase(at("05:30", day=11)) == "consolidate"    # consolidation every day
+    assert "weekdays" in rh.describe()
+
+
+def test_pause_days_can_be_listed_and_a_night_window_belongs_to_its_start_day():
+    rh = Rhythm({**RCFG, "pause": ["22:00-02:00"], "pause_days": ["fri"]})
+    assert rh.phase(at("23:00", day=16)) == "pause"          # Friday night
+    assert rh.phase(at("01:00", day=17)) == "pause"          # ... into Saturday
+    assert rh.phase(at("23:00", day=17)) == "explore"        # not Saturday night
+    with __import__("pytest").raises(ValueError):
+        Rhythm({**RCFG, "pause_days": ["someday"]})
 
 
 def test_a_pause_window_may_cross_midnight():

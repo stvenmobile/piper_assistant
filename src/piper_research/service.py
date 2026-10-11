@@ -1,7 +1,7 @@
 """
 The research service. Ways to run:
   * the RHYTHM (--session with research.session_hours 0, the default - start_quiet.sh starts it):
-    research with no end, in a daily structure (rhythm.py): explore, pause during working hours,
+    research with no end, in a daily structure (rhythm.py): explore, pause during weekday working hours,
     consolidate before dawn, a daily report at 07:00, a weekly one and topic decisions on Sundays.
   * a SESSION of fixed length (--session HOURS): research for that long, then write the session
     summary (a remark Piper can say) and stop.
