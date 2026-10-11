@@ -17,7 +17,9 @@ Piper's research side - curiosity, choosing what to study and checking whether s
 | Voice loop: wake word, speech-to-text, quick local answers, LLM replies, speech   | **Working**                                |
 | Two speech engines (Kokoro on the GPU, Piper on the CPU), chosen in `config.yaml` | **Working**                                |
 | Per-person profiles loaded into the conversation                                  | Working (person found by "my name is ...") |
-| Unit tests (config, quick responder, weather cache, state, audio devices)         | **Working** - `pytest`                     |
+| Research: daily rhythm, verified findings, synthesis with reasoning trails, mastery | **Working** - section 5.5                |
+| Research dashboard (reports, insights and their trails, topics and mastery)        | **Working** - section 5.6                  |
+| Unit tests (config, audio, state, research memory and loop, synthesis, rhythm, mastery, dashboard) | **Working** - `pytest`    |
 | SP-200 speakerphone (microphone + speaker with echo cancellation)                 | Next: set the device names                 |
 | piper-watch head: light ring states, head link                                    | Planned - roadmap phase 1                  |
 | Pan motor and face tracking                                                       | Planned - phases 2-3                       |
@@ -47,7 +49,7 @@ Piper's research side - curiosity, choosing what to study and checking whether s
                                                │ no match                             │
                                                ▼                                      │
                                      supervisor (LangGraph) ─► Ollama on the LAN ─────┘
-                                     + persona (system_dna.md)
+                                     + persona and purpose (system_dna.md)
                                      + person's profile (profiles/<name>.md)
                                      + date, time, cached weather
 ```
@@ -90,7 +92,7 @@ Piper's research side - curiosity, choosing what to study and checking whether s
 ```text
 piper_assistant/
 ├── config.yaml              settings (every one has a default in piper_brain/config.py)
-├── system_dna.md            Piper's persona and voice rules
+├── system_dna.md            Piper's persona, her purpose (mastery) and voice rules
 ├── profiles/                one markdown profile per person (e.g. steve.md)
 ├── daily_journal.md         activity log written by the runtime
 ├── src/
@@ -98,8 +100,8 @@ piper_assistant/
 │   ├── piper_audio/         listener (Whisper), Kokoro and Piper speakers, devices.py
 │   ├── piper_brain/         config, supervisor, quick responder, tools, state, journal
 │   ├── piper_memory/        research memory: SQLite store, embeddings, concept graph, seeds
-│   ├── piper_research/      the research loop and its scheduler (section 5.5)
-│   ├── piper_dashboard/     read-only web view of the research memory (section 5.6)
+│   ├── piper_research/      research: the loop, synthesis, the daily rhythm, mastery (section 5.5)
+│   ├── piper_dashboard/     web view of the research memory; its actions are requests (section 5.6)
 │   ├── piper_geometry/      research: residual-stream extraction (continues in curious-george)
 │   └── piper_tools/         research: Obsidian vault and reading-dashboard builders
 ├── tests/                   unit tests (pytest)
@@ -171,7 +173,7 @@ research with no end, in a daily structure (`src/piper_research/rhythm.py`, `res
 
 | Time (local) | Phase |
 |---|---|
-| 05:00-07:00 | **Consolidate** - no new reading: reflect on every topic researched since yesterday, a synthesis pass over every topic, prune stale questions, review insights; on Sundays the **topic decisions** (retire, rest, wake, spawn a sub-topic, propose a new topic). Spare time goes to the re-judging backlog |
+| 05:00-07:00 | **Consolidate** - no new reading: reflect on every topic researched since yesterday, a synthesis pass over every topic, prune stale questions, review insights; on Sundays the **topic decisions** (rest a stuck topic, wake a rested one, and *propose* new topics and sub-topics - you add them). Topics ready for mastery ask for it. Spare time goes to the re-judging backlog |
 | 07:00 | **Daily report** (and the weekly one on Sundays) - on the dashboard, and a short version Piper can say |
 | 10:00-17:00 | **Pause**, weekdays only (`pause_days`) - the PC's GPU is left alone. Weekends: explore |
 | otherwise | **Explore** - research and synthesis cycles, with a checkpoint every hour |
@@ -213,11 +215,14 @@ python3 src/piper_research/service.py --now --once      # one cycle now, whateve
 python3 src/piper_research/service.py --now --cycles 5 --topic "How migrating birds navigate"
 ```
 
-Two maintenance commands:
+Maintenance commands:
 - `--rejudge 500` runs the judge over findings stored before it existed. The service also does a
   few after each cycle (`research.rejudge_per_cycle`).
 - `--tidy` prunes the open questions to `research.max_open_questions` per topic and marks the old
   cross-topic flags as reviewed.
+- `--delete-topic "Name"` removes a topic and everything that belongs to it (the dashboard's
+  delete does the same). Back up `data/memory/piper_memory.db` before upgrading Piper, too: a new
+  version may upgrade the memory's format, and the older code can't read it afterwards.
 
 **Mastery** (`src/piper_research/mastery.py`) is the goal for every topic - in Piper's research
 role and her DNA (`system_dna.md`). Each current topic has a mastery checklist: recent research
@@ -384,7 +389,8 @@ The assistant and vision talk to the head link over a local socket with the same
 
 ## 8. Configuration notes
 
-- `system_dna.md` holds Piper's persona and voice rules; it is read at start-up.
+- `system_dna.md` holds Piper's persona, her purpose (mastery as the goal of her research) and
+  voice rules; it is read at start-up.
 - `profiles/<name>.md` is loaded into the conversation for that person (file name in lower case, e.g. `steve.md`).
 - `daily_journal.md` records state changes, local answers and LLM replies, grouped by date.
 
