@@ -36,7 +36,8 @@ class Rhythm:
     def __init__(self, cfg: dict):
         self.pause = [parse_window(w) for w in cfg.get("pause", [])]
         days = cfg.get("pause_days", "weekdays")
-        days = {"weekdays": DAYS[:5], "daily": DAYS}.get(days, days)
+        if isinstance(days, str):
+            days = {"weekdays": DAYS[:5], "daily": DAYS}.get(days, [d.strip() for d in days.split(",")])
         bad = [d for d in days if d[:3].lower() not in DAYS]
         if bad:
             raise ValueError(f"unknown pause days {bad} (use mon..sun, 'weekdays' or 'daily')")
