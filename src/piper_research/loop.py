@@ -19,6 +19,11 @@ The research loop - one cycle:
                  (a few a night, and not between topics already known to be linked)
     REFLECT      every few cycles on a topic: where the evidence stands, remarks to say aloud,
                  next questions
+    TEST         when the question was DERIVED from an insight, the new findings are weighed
+                 against that insight (synthesis.py)
+
+step() decides between this research cycle and a SYNTHESIS cycle (synthesis.py), which reads
+nothing new and looks for relationships between findings already known.
 
 All of it is recorded in the memory store with provenance, and logged as events.
 """
@@ -34,6 +39,7 @@ from piper_memory.embed import EmbedError, normalise
 from piper_memory.schema import CERTAINTY
 from piper_research import prompts as P
 from piper_research.llm import LLMError, OllamaChat
+from piper_research.synthesis import SynthesisMixin
 from piper_research.verify import find_quote, norm, tidy_remark
 from piper_research.wiki import Wikipedia, passages
 
@@ -48,7 +54,7 @@ def _hours_since(iso: str | None, now: datetime) -> float:
     return (now - datetime.fromisoformat(iso)).total_seconds() / 3600
 
 
-class Researcher:
+class Researcher(SynthesisMixin):
     def __init__(self, mem, llm: OllamaChat, wiki: Wikipedia, cfg: dict, log=print, rng=None,
                  should_stop=lambda: False, sep=None):
         self.mem = mem
@@ -83,7 +89,7 @@ class Researcher:
         for t in self.mem.topics():
             if t["status"] == "retired":
                 continue
-            eps = self.mem.episodes(t["id"], limit=3)
+            eps = [e for e in self.mem.episodes(t["id"], limit=8) if e.get("kind", "research") == "research"][:3]
             n = self.mem.db.execute("SELECT COUNT(*) FROM findings WHERE topic_id = ? AND kind != 'question'",
                                     (t["id"],)).fetchone()[0]
             staleness = min(1.0, _hours_since(eps[0]["started_at"] if eps else None, now) / 24)
@@ -161,7 +167,8 @@ class Researcher:
     def next_question(self, topic: dict) -> dict:
         tid = topic["id"]
         open_q = self.ranked_open_questions(topic)
-        asked = [e["angle"] for e in self.mem.episodes(tid, limit=10) if e["angle"]]
+        asked = [e["angle"] for e in self.mem.episodes(tid, limit=10)
+                 if e["angle"] and e.get("kind", "research") == "research"]
         known = [f["text"] for f in self.mem.findings(tid, limit=60)
                  if f["kind"] != "question" and f["relevance"] != "off_topic"][:12]
         bal = self.mem.stance_balance(tid)
@@ -298,10 +305,11 @@ class Researcher:
         return r.get("relation", "neither")
 
     # ---- one cycle ----------------------------------------------------------------------------
-    def cycle(self, topic_name: str | None = None) -> dict:
+    def cycle(self, topic_name: str | None = None, topic: dict | None = None) -> dict:
+        """One research cycle (on `topic`, or one chosen now). step() picks between this and synthesis."""
         t0 = time.monotonic()
         usage0 = self.llm.usage()
-        topic = self.choose(topic_name)
+        topic = topic or self.choose(topic_name)
         tid = topic["id"]
         self.last_topic = tid
         if topic["status"] == "queued":
@@ -330,6 +338,10 @@ class Researcher:
             answer, new_ids = self.extract(topic, ep, q["question"], pages, chosen, stats)
             self._check()
             self.cross_links(tid, new_ids, stats)
+            insight = self.mem.insight_for_question(q["question"])     # a DERIVED question: test its insight
+            if insight and insight["status"] not in ("rejected", "dropped"):
+                self._check()
+                self.weigh_evidence(insight, ep, new_ids, stats)
             outcome = "progress" if stats["new"] else "stalled"
             self.mem.end_episode(ep, outcome, answer, **stats, **self._usage(usage0, t0))
             self.say(f"[Research]   {stats['new']} new, {stats['duplicates'] + stats['extra_sources']} known,"

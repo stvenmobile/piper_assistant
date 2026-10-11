@@ -98,8 +98,12 @@ DEFAULTS: dict = {
     },
     "research": {                         # piper_research: the research loop (a background service)
         "enabled": True,
-        "session_hours": 8,               # a research SESSION (start_quiet.sh starts one): research from the
-                                          #   moment Piper starts, stop after this long, write the summary
+        "session_hours": 0,               # a research SESSION (start_quiet.sh starts one): research from the
+                                          #   moment Piper starts, stop after this long, write the summary.
+                                          #   0 = no end: research until Piper is stopped
+        "summary_hours": 12,              # a session with no end is cut into chunks this long: each one ends
+                                          #   with its summary (a remark Piper can say) and the per-session
+                                          #   caps (cross-topic links ...) start again
         "windows": [],                    # optional timed windows instead ([] = none), local time; a window
                                           #   may cross midnight ("22:00-06:00"). Env: "01:00-08:00,13:00-14:00"
         "days": "daily",                  # or a list: ["mon", "tue", ...] (the day a window starts on)
@@ -125,9 +129,17 @@ DEFAULTS: dict = {
         "rejudge_per_cycle": 6,           # findings stored before the judge existed, judged after each cycle
         "max_open_questions": 30,         # per topic; follow-ups stop being added beyond this
         "reflect_every": 3,               # cycles on a topic between reflections (position + remarks)
+        # SYNTHESIS (synthesis.py): cycles that look for relationships between findings already known
+        "synthesis": True,
+        "synth_saturation": 0.5,          # a topic this saturated (recent cycles found little new) gets synthesis
+        "synth_every_max": 6,             # ... and at most this many research cycles go by without one
+        "synth_min_findings": 15,         # a topic needs this much to synthesize from
+        "synth_topic_gap": 3,             # not again on a topic within its last N cycles
+        "synth_near_min": 0.55,           # similarity for the cross-topic "neighbourhood" material
+        "max_derived_open": 10,           # per topic: open questions DERIVED from insights (own cap)
         "cross_topic_checks": 3,          # new findings per cycle checked for links to other topics
         "cross_topic_min": 0.75,          # similarity for a cross-topic candidate (memory.cross_topic is 0.68)
-        "cross_links_per_window": 5,      # at most this many flagged per research window
+        "cross_links_per_window": 20,     # cross-topic links flagged per research day (rhythm) or window
         "cross_links_per_pair": 2,        # after this many, two topics are known to be linked - no more flags
         "pause_s": 20,                    # between cycles
     },

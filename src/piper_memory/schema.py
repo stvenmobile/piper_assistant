@@ -18,13 +18,21 @@ are views of it).
     series      numbers worth graphing, attached to a finding
     remarks     prepared remarks (spoken without an LLM), superseded as understanding grows
     notable     things flagged for a human to look at
+    insights    what SYNTHESIS concluded from several findings (a link, a tension, a hypothesis, an
+                analogy), with its confidence and status; each keeps its TRACE - why that material
+                was chosen, the numbered reasoning steps (each citing findings, each checked),
+                the grounding check and the model's raw thinking - so it can be followed back
+    insight_findings / insight_questions   an insight's basis, and the derived questions it raised
+    insight_events   its later history: evidence from research on its questions, reviews
+    reports     the daily and weekly reports (markdown + the numbers behind them)
     tags        light labels for browsing
     events      the activity log the dashboard's live view follows
 
 Times are ISO-8601 UTC strings. JSON columns hold flexible extras.
 """
 
-SCHEMA_VERSION = 3              # v2: topics.thesis, findings.stance; v3: relevance, stance_reason, judged_by
+SCHEMA_VERSION = 4              # v2: topics.thesis, findings.stance; v3: relevance, stance_reason, judged_by;
+                                # v4: insights, reports, episodes.kind, topics.stage
 
 # upgrades from each older version (applied in order by MemoryStore)
 MIGRATIONS = {
@@ -33,6 +41,8 @@ MIGRATIONS = {
     3: ["ALTER TABLE findings ADD COLUMN relevance TEXT NOT NULL DEFAULT 'core'",
         "ALTER TABLE findings ADD COLUMN stance_reason TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE findings ADD COLUMN judged_by TEXT"],
+    4: ["ALTER TABLE episodes ADD COLUMN kind TEXT NOT NULL DEFAULT 'research'",
+        "ALTER TABLE topics ADD COLUMN stage TEXT NOT NULL DEFAULT 'explore'"],
 }
 
 # relation types - a small fixed vocabulary, so the graph stays queryable
@@ -60,6 +70,12 @@ RELEVANCE = ("core", "background", "off_topic")          # to the topic
 CERTAINTY = {"established": 0.9, "reported": 0.6, "speculative": 0.3}   # -> findings.confidence
 SOURCE_KINDS = ("wikipedia", "sep", "web", "llm", "user")
 TOPIC_STATUS = ("queued", "active", "resting", "retired")
+TOPIC_STAGES = ("explore", "synthesize", "test", "mature", "retired")   # a topic's life (set at checkpoints)
+EPISODE_KINDS = ("research", "synthesis")
+INSIGHT_KINDS = ("link", "tension", "hypothesis", "analogy", "pattern")
+INSIGHT_STATUS = ("new", "supported", "weakened", "dropped", "rejected")  # rejected: failed its grounding check
+INSIGHT_CONFIDENCE = {"speculative": 0.3, "plausible": 0.5, "strong": 0.7}
+REPORT_KINDS = ("daily", "weekly")
 
 DDL = """
 CREATE TABLE IF NOT EXISTS topics (
@@ -70,6 +86,7 @@ CREATE TABLE IF NOT EXISTS topics (
     thesis      TEXT NOT NULL DEFAULT '',          -- a position to examine ('' = open exploration)
     origin      TEXT NOT NULL DEFAULT 'seed',      -- seed | user | spawned | surprise | calibration
     status      TEXT NOT NULL DEFAULT 'queued',    -- queued | active | resting | retired
+    stage       TEXT NOT NULL DEFAULT 'explore',   -- explore | synthesize | test | mature | retired
     novelty     REAL,                              -- curiosity scores, 0..1 (set by the loop)
     progress    REAL,
     saturation  REAL,
@@ -80,6 +97,7 @@ CREATE TABLE IF NOT EXISTS topics (
 CREATE TABLE IF NOT EXISTS episodes (
     id          INTEGER PRIMARY KEY,
     topic_id    INTEGER NOT NULL REFERENCES topics(id),
+    kind        TEXT NOT NULL DEFAULT 'research',  -- research | synthesis
     angle       TEXT NOT NULL DEFAULT '',          -- the question / direction of this cycle
     model       TEXT NOT NULL DEFAULT '',
     started_at  TEXT NOT NULL,
@@ -188,7 +206,49 @@ CREATE TABLE IF NOT EXISTS events (
     data  TEXT NOT NULL DEFAULT '{}'               -- JSON
 );
 
+CREATE TABLE IF NOT EXISTS insights (
+    id          INTEGER PRIMARY KEY,
+    topic_id    INTEGER NOT NULL REFERENCES topics(id),   -- the topic synthesis was working on
+    episode_id  INTEGER REFERENCES episodes(id),          -- the synthesis cycle
+    statement   TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'link',      -- link | tension | hypothesis | analogy | pattern
+    confidence  REAL NOT NULL DEFAULT 0.5,
+    status      TEXT NOT NULL DEFAULT 'new',       -- new | supported | weakened | dropped | rejected
+    trace       TEXT NOT NULL DEFAULT '{}',        -- JSON: selection, steps (+checks), grounding, thinking, model
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    embedding   BLOB
+);
+CREATE TABLE IF NOT EXISTS insight_findings (
+    insight_id  INTEGER NOT NULL REFERENCES insights(id) ON DELETE CASCADE,
+    finding_id  INTEGER NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+    PRIMARY KEY (insight_id, finding_id)
+);
+CREATE TABLE IF NOT EXISTS insight_questions (
+    insight_id  INTEGER NOT NULL REFERENCES insights(id) ON DELETE CASCADE,
+    finding_id  INTEGER NOT NULL REFERENCES findings(id) ON DELETE CASCADE,   -- a kind='question' finding
+    PRIMARY KEY (insight_id, finding_id)
+);
+CREATE TABLE IF NOT EXISTS insight_events (
+    id          INTEGER PRIMARY KEY,
+    insight_id  INTEGER NOT NULL REFERENCES insights(id) ON DELETE CASCADE,
+    ts          TEXT NOT NULL,
+    kind        TEXT NOT NULL,                     -- created | evidence | restated | review | status
+    data        TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS reports (
+    id          INTEGER PRIMARY KEY,
+    kind        TEXT NOT NULL,                     -- daily | weekly
+    period_start TEXT NOT NULL,
+    period_end  TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    text        TEXT NOT NULL,                     -- markdown
+    data        TEXT NOT NULL DEFAULT '{}'         -- JSON: the numbers behind it (balances, counts ...)
+);
+
 CREATE INDEX IF NOT EXISTS ix_findings_topic   ON findings(topic_id);
+CREATE INDEX IF NOT EXISTS ix_insights_topic   ON insights(topic_id);
+CREATE INDEX IF NOT EXISTS ix_insight_events   ON insight_events(insight_id);
 CREATE INDEX IF NOT EXISTS ix_findings_episode ON findings(episode_id);
 CREATE INDEX IF NOT EXISTS ix_relations_subj   ON relations(subject_id);
 CREATE INDEX IF NOT EXISTS ix_relations_obj    ON relations(object_id);

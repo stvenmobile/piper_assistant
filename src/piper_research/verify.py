@@ -2,7 +2,7 @@
 Quote checking - the research loop's defence against the model inventing things. A finding is
 only kept if the quote it gives as support really appears in what Piper read.
 
-Matching ignores case, spacing, quote/dash styles and punctuation at the ends; a quote that is
+Matching ignores case, spacing, dash styles, quote marks (anywhere) and punctuation at the ends; a quote that is
 nearly verbatim (one word slipped) still passes, a paraphrase doesn't. A quote shortened with
 "..." passes when every piece is found, in order, in the same text.
 """
@@ -16,7 +16,9 @@ FUZZY = 0.92            # share of the quote that must match in one stretch
 
 
 def norm(text: str) -> str:
-    return " ".join(text.translate(_TRANS).lower().split()).strip(" .,;:\"'")
+    # quote marks are dropped everywhere, not just at the ends: a page's "nested quote" often
+    # comes back from the model as 'nested quote' (and the reverse)
+    return " ".join(text.translate(_TRANS).replace('"', "").replace("'", "").lower().split()).strip(" .,;:")
 
 
 def find_quote(quote: str, texts: list[str]) -> int | None:

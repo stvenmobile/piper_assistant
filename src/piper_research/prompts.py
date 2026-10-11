@@ -186,5 +186,121 @@ OVERNIGHT_SCHEMA = {"type": "object", "properties": {"summary": {"type": "string
                     "required": ["summary"]}
 
 
+# ---- 6. SYNTHESIS: relationships between findings ------------------------------------------------
+SYNTH_PROMPT_VERSION = 1
+
+SYNTHESIZE = ROLE + """
+You are not reading anything new now. You are looking for RELATIONSHIPS between findings you
+already have - the kind of connection that makes a person say "oh, so THAT is why". The findings
+below were chosen together for a reason (given first). Each is marked [F<number>].
+
+Reason step by step, in "steps": each step is one short sentence and cites the findings it uses
+in "cites" (their numbers). A step may only use what its cited findings say, plus ordinary
+reasoning - no outside facts. Then give at most 2 "insights":
+- "statement": the relationship, in at most 40 words, specific enough to be wrong. Not a summary
+  of one finding, not a vague theme ("both involve the brain"), not something any one finding
+  already says.
+- "kind": link (one finding explains or constrains another), tension (they pull against each
+  other), hypothesis (together they suggest something untested), analogy (the same structure in
+  different domains), pattern (a regularity across several).
+- "confidence": speculative, plausible or strong - how well the cited findings support it.
+- "based_on": the findings it rests on (at least 2).
+- "questions": 1-2 new research questions it raises. Each must carry the nuance of the insight
+  (not the original broad question again) and be answerable from encyclopedia articles.
+If nothing non-obvious connects these findings, return no insights - that is a fine answer."""
+
+SYNTH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "steps": {"type": "array", "maxItems": 8, "items": {
+            "type": "object",
+            "properties": {"text": {"type": "string", "maxLength": 300},
+                           "cites": {"type": "array", "items": {"type": "integer"}}},
+            "required": ["text", "cites"]}},
+        "insights": {"type": "array", "maxItems": 2, "items": {
+            "type": "object",
+            "properties": {"statement": {"type": "string", "maxLength": 320},
+                           "kind": {"type": "string", "enum": ["link", "tension", "hypothesis", "analogy", "pattern"]},
+                           "confidence": {"type": "string", "enum": ["speculative", "plausible", "strong"]},
+                           "based_on": {"type": "array", "items": {"type": "integer"}, "minItems": 2},
+                           "questions": {"type": "array", "items": {"type": "string", "maxLength": 300},
+                                         "maxItems": 2}},
+            "required": ["statement", "kind", "confidence", "based_on", "questions"]}},
+    },
+    "required": ["steps", "insights"],
+}
+
+GROUND = ROLE + """
+Check one proposed insight against the findings it claims to rest on. Is it actually supported
+by them (with ordinary reasoning, no outside facts)?
+- grounded: the findings together support it as stated.
+- partly: the direction is right but it claims more than they show.
+- unsupported: they don't support it, or it contradicts them.
+Give a one-sentence reason."""
+
+GROUND_SCHEMA = {"type": "object",
+                 "properties": {"verdict": {"type": "string", "enum": ["grounded", "partly", "unsupported"]},
+                                "reason": {"type": "string", "maxLength": 300}},
+                 "required": ["verdict", "reason"]}
+
+EVIDENCE = ROLE + """
+Research was just done on a question an earlier insight raised. Do the NEW findings support the
+insight, weaken it, or neither? Be strict: "supports" only if they bear on the insight itself,
+not just on its topic. One-sentence reason."""
+
+EVIDENCE_SCHEMA = {"type": "object",
+                   "properties": {"effect": {"type": "string", "enum": ["supports", "weakens", "neither"]},
+                                  "reason": {"type": "string", "maxLength": 300}},
+                   "required": ["effect", "reason"]}
+
+# ---- 7. reports and topic decisions -----------------------------------------------------------------
+DAILY = ROLE + """
+Write the narrative parts of your daily research report, as Piper, first person, plain and
+calibrated (say "I suspect", "the evidence suggests" - never overstate an insight).
+- "thinking": What I'm starting to think - your 2-4 strongest insights and why they matter,
+  connected where they connect (at most 150 words).
+- "stuck": where research stalled and what you think is missing (at most 60 words).
+- "next": what you plan to chase next and why (at most 60 words).
+- "spoken": a 1-2 sentence version to say aloud in the morning (at most 45 words)."""
+
+DAILY_SCHEMA = {"type": "object",
+                "properties": {"thinking": {"type": "string", "maxLength": 1100},
+                               "stuck": {"type": "string", "maxLength": 450},
+                               "next": {"type": "string", "maxLength": 450},
+                               "spoken": {"type": "string", "maxLength": 320}},
+                "required": ["thinking", "stuck", "next", "spoken"]}
+
+WEEKLY = ROLE + """
+Write the overview for your weekly "state of my mind" report, as Piper, first person, calibrated.
+For the week as a whole: what changed in your understanding, which insights held up and which
+fell, and the decisions you made about your topics and why (at most 220 words)."""
+
+WEEKLY_SCHEMA = {"type": "object", "properties": {"overview": {"type": "string", "maxLength": 1600}},
+                 "required": ["overview"]}
+
+SPAWN = ROLE + """
+These related questions all grew out of one research topic and keep pointing the same way. Name
+a new sub-topic that would study them: a short name (at most 8 words, like an encyclopedia
+article title) and a one-sentence description. Optionally a thesis to examine (a position, or
+empty for open exploration)."""
+
+SPAWN_SCHEMA = {"type": "object",
+                "properties": {"name": {"type": "string", "maxLength": 80},
+                               "description": {"type": "string", "maxLength": 300},
+                               "thesis": {"type": "string", "maxLength": 300}},
+                "required": ["name", "description", "thesis"]}
+
+PROPOSE = ROLE + """
+These are your strongest insights from the past week. Do they point to a NEW topic worth studying -
+one none of your current topics covers? Only propose one if it is clearly worth it; otherwise
+say false. Name it like an encyclopedia article (at most 8 words), describe it in one sentence,
+and say why the insights point there."""
+
+PROPOSE_SCHEMA = {"type": "object",
+                  "properties": {"propose": {"type": "boolean"}, "name": {"type": "string", "maxLength": 80},
+                                 "description": {"type": "string", "maxLength": 300},
+                                 "why": {"type": "string", "maxLength": 300}},
+                  "required": ["propose", "name", "description", "why"]}
+
 def numbered(items: list[str]) -> str:
     return "\n".join(f"{i}. {t}" for i, t in enumerate(items, 1)) or "(none)"

@@ -263,7 +263,7 @@ def test_readonly_reader_sees_writes_but_cannot_write(tmp_path):
 
 def test_schema_version_is_recorded(mem):
     from piper_memory.schema import SCHEMA_VERSION
-    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 3
+    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 4
 
 
 def test_a_v1_store_is_upgraded_in_place(tmp_path):
@@ -287,7 +287,8 @@ def test_a_v1_store_is_upgraded_in_place(tmp_path):
     f = mem.get_finding(1)
     assert mem.get_topic(1)["thesis"] == "" and f["stance"] == "neutral"
     assert (f["relevance"], f["judged_by"]) == ("core", None)                    # v3 columns, defaults
-    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert mem.db.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert mem.get_topic(1)["stage"] == "explore"                                  # v4 columns, defaults
     mem.add_finding("spring tides", 1, stance="supports", relevance="background")   # usable
 
 

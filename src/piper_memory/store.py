@@ -18,8 +18,9 @@ from pathlib import Path
 import numpy as np
 
 from piper_memory.embed import EmbedError, normalise
-from piper_memory.schema import (DDL, FINDING_KINDS, FINDING_STATUS, MIGRATIONS, RELATIONS, RELEVANCE,
-                                 SCHEMA_VERSION, SOURCE_KINDS, STANCES, TOPIC_STATUS)
+from piper_memory.schema import (DDL, EPISODE_KINDS, FINDING_KINDS, FINDING_STATUS, INSIGHT_KINDS, INSIGHT_STATUS,
+                                 MIGRATIONS, RELATIONS, RELEVANCE, REPORT_KINDS, SCHEMA_VERSION, SOURCE_KINDS,
+                                 STANCES, TOPIC_STAGES, TOPIC_STATUS)
 
 
 def now() -> str:
@@ -121,7 +122,10 @@ class MemoryStore:
             if version > 0:                         # an older store: upgrade it step by step
                 for v in range(version + 1, SCHEMA_VERSION + 1):
                     for sql in MIGRATIONS.get(v, []):
-                        self.db.execute(sql)
+                        table = sql.split()[2]      # "ALTER TABLE <name> ..."
+                        if self.db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                                           (table,)).fetchone():
+                            self.db.execute(sql)    # (a table not there yet is created whole by the DDL)
             self.db.executescript(DDL)              # new store: everything; old: any new tables
             self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
@@ -193,13 +197,15 @@ class MemoryStore:
         return [dict(r) for r in self.db.execute(sql + " ORDER BY id", args)]
 
     def update_topic(self, topic_id: int, **fields):
-        """Set status / description / thesis / novelty / progress / saturation / parent_id."""
-        allowed = {"status", "description", "thesis", "novelty", "progress", "saturation", "parent_id"}
+        """Set status / stage / description / thesis / novelty / progress / saturation / parent_id."""
+        allowed = {"status", "stage", "description", "thesis", "novelty", "progress", "saturation", "parent_id"}
         bad = set(fields) - allowed
         if bad:
             raise ValueError(f"can't update topic fields {bad}")
         if "status" in fields and fields["status"] not in TOPIC_STATUS:
             raise ValueError(f"topic status must be one of {TOPIC_STATUS}")
+        if "stage" in fields and fields["stage"] not in TOPIC_STAGES:
+            raise ValueError(f"topic stage must be one of {TOPIC_STAGES}")
         if not fields:
             return
         sets = ", ".join(f"{k} = ?" for k in fields)
@@ -208,10 +214,12 @@ class MemoryStore:
                             (*fields.values(), now(), topic_id))
 
     # ---- episodes (the research diary) -------------------------------------------------------
-    def start_episode(self, topic_id: int, angle: str = "", model: str = "") -> int:
+    def start_episode(self, topic_id: int, angle: str = "", model: str = "", kind: str = "research") -> int:
+        if kind not in EPISODE_KINDS:
+            raise ValueError(f"episode kind must be one of {EPISODE_KINDS}")
         with self.lock, self._write():
-            return self.db.execute("INSERT INTO episodes (topic_id, angle, model, started_at) VALUES (?, ?, ?, ?)",
-                                   (topic_id, angle, model, now())).lastrowid
+            return self.db.execute("INSERT INTO episodes (topic_id, kind, angle, model, started_at) VALUES (?, ?, ?, ?, ?)",
+                                   (topic_id, kind, angle, model, now())).lastrowid
 
     def end_episode(self, episode_id: int, outcome: str, summary: str = "", **stats):
         with self.lock, self._write():
@@ -299,6 +307,15 @@ class MemoryStore:
         with self.lock, self._write():
             return self.db.execute("INSERT OR IGNORE INTO finding_sources (finding_id, source_id, excerpt)"
                                    " VALUES (?, ?, ?)", (finding_id, source_id, excerpt)).rowcount > 0
+
+    def move_finding(self, finding_id: int, topic_id: int):
+        """Move a finding (e.g. a derived question) to another topic - a spawned sub-topic."""
+        with self.lock, self._write():
+            self.db.execute("UPDATE findings SET topic_id = ? WHERE id = ?", (topic_id, finding_id))
+
+    def has_tag(self, finding_id: int, tag: str) -> bool:
+        return self.db.execute("SELECT 1 FROM finding_tags ft JOIN tags t ON t.id = ft.tag_id"
+                               " WHERE ft.finding_id = ? AND t.name = ?", (finding_id, tag)).fetchone() is not None
 
     def finding_source_ids(self, finding_id: int) -> set[int]:
         return {r[0] for r in self.db.execute("SELECT source_id FROM finding_sources WHERE finding_id = ?",
@@ -584,6 +601,115 @@ class MemoryStore:
         with self.lock, self._write():
             self.db.execute("UPDATE notable SET reviewed_at = ? WHERE id = ?", (now(), notable_id))
 
+    # ---- insights (what synthesis concluded, with the trail that led there) -----------------------
+    def add_insight(self, statement: str, topic_id: int, basis: list[int], kind: str = "link",
+                    confidence: float = 0.5, trace: dict | None = None, episode_id: int | None = None,
+                    status: str = "new") -> int:
+        """Store an insight with its basis (finding ids) and its trace (why that material, the
+        reasoning steps and their checks, the grounding check, the raw thinking)."""
+        if kind not in INSIGHT_KINDS:
+            raise ValueError(f"insight kind must be one of {INSIGHT_KINDS}")
+        if status not in INSIGHT_STATUS:
+            raise ValueError(f"insight status must be one of {INSIGHT_STATUS}")
+        vector = self._embed(statement)
+        with self.lock, self._write():
+            t = now()
+            iid = self.db.execute(
+                "INSERT INTO insights (topic_id, episode_id, statement, kind, confidence, status, trace, created_at,"
+                " updated_at, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (topic_id, episode_id, statement, kind, confidence, status, json.dumps(trace or {}), t, t,
+                 _blob(vector))).lastrowid
+            for fid in dict.fromkeys(basis):
+                self.db.execute("INSERT OR IGNORE INTO insight_findings (insight_id, finding_id) VALUES (?, ?)", (iid, fid))
+            self.db.execute("INSERT INTO insight_events (insight_id, ts, kind, data) VALUES (?, ?, 'created', ?)",
+                            (iid, t, json.dumps({"confidence": confidence, "status": status})))
+        return iid
+
+    def link_question(self, insight_id: int, finding_id: int):
+        with self.lock, self._write():
+            self.db.execute("INSERT OR IGNORE INTO insight_questions (insight_id, finding_id) VALUES (?, ?)",
+                            (insight_id, finding_id))
+
+    def insight_event(self, insight_id: int, kind: str, **data) -> int:
+        with self.lock, self._write():
+            return self.db.execute("INSERT INTO insight_events (insight_id, ts, kind, data) VALUES (?, ?, ?, ?)",
+                                   (insight_id, now(), kind, json.dumps(data))).lastrowid
+
+    def update_insight(self, insight_id: int, confidence: float | None = None, status: str | None = None):
+        if status is not None and status not in INSIGHT_STATUS:
+            raise ValueError(f"insight status must be one of {INSIGHT_STATUS}")
+        sets, args = [], []
+        if confidence is not None:
+            sets.append("confidence = ?")
+            args.append(round(min(0.95, max(0.05, confidence)), 3))
+        if status is not None:
+            sets.append("status = ?")
+            args.append(status)
+        if not sets:
+            return
+        with self.lock, self._write():
+            self.db.execute(f"UPDATE insights SET {', '.join(sets)}, updated_at = ? WHERE id = ?", (*args, now(), insight_id))
+
+    def get_insight(self, insight_id: int) -> dict | None:
+        r = self.db.execute("SELECT * FROM insights WHERE id = ?", (insight_id,)).fetchone()
+        if not r:
+            return None
+        out = {k: r[k] for k in r.keys() if k != "embedding"}
+        out["trace"] = json.loads(r["trace"])
+        out["basis"] = [x[0] for x in self.db.execute(
+            "SELECT finding_id FROM insight_findings WHERE insight_id = ? ORDER BY finding_id", (insight_id,))]
+        out["questions"] = [x[0] for x in self.db.execute(
+            "SELECT finding_id FROM insight_questions WHERE insight_id = ? ORDER BY finding_id", (insight_id,))]
+        out["events"] = [{"id": e["id"], "ts": e["ts"], "kind": e["kind"], **json.loads(e["data"])}
+                         for e in self.db.execute("SELECT * FROM insight_events WHERE insight_id = ? ORDER BY id",
+                                                  (insight_id,))]
+        return out
+
+    def insights(self, topic_id: int | None = None, status: str | None = None, limit: int = 100) -> list[dict]:
+        where, args = [], []
+        if topic_id is not None:
+            where.append("topic_id = ?")
+            args.append(topic_id)
+        if status is not None:
+            where.append("status = ?")
+            args.append(status)
+        sql = "SELECT id FROM insights" + (" WHERE " + " AND ".join(where) if where else "")
+        return [self.get_insight(r[0]) for r in self.db.execute(sql + " ORDER BY id DESC LIMIT ?", (*args, limit))]
+
+    def similar_insight(self, statement: str, min_score: float = 0.90) -> dict | None:
+        """An existing (not rejected) insight that says the same thing, if any."""
+        v = self._embed(statement)
+        if v is None:
+            return None
+        best, best_s = None, min_score
+        for r in self.db.execute("SELECT id, embedding FROM insights WHERE embedding IS NOT NULL AND status != 'rejected'"):
+            sc = float(_vec(r["embedding"]) @ v)
+            if sc >= best_s:
+                best, best_s = r["id"], sc
+        return self.get_insight(best) if best else None
+
+    def insight_for_question(self, question_text: str) -> dict | None:
+        """The insight a (derived) question came from, by the question's text."""
+        r = self.db.execute("SELECT iq.insight_id FROM insight_questions iq JOIN findings f ON f.id = iq.finding_id"
+                            " WHERE f.text = ? ORDER BY iq.insight_id DESC LIMIT 1", (question_text,)).fetchone()
+        return self.get_insight(r[0]) if r else None
+
+    # ---- reports (daily / weekly) --------------------------------------------------------------
+    def add_report(self, kind: str, period_start: str, period_end: str, text: str, data: dict | None = None) -> int:
+        if kind not in REPORT_KINDS:
+            raise ValueError(f"report kind must be one of {REPORT_KINDS}")
+        with self.lock, self._write():
+            return self.db.execute("INSERT INTO reports (kind, period_start, period_end, created_at, text, data)"
+                                   " VALUES (?, ?, ?, ?, ?, ?)",
+                                   (kind, period_start, period_end, now(), text, json.dumps(data or {}))).lastrowid
+
+    def reports(self, kind: str | None = None, limit: int = 30) -> list[dict]:
+        sql, args = "SELECT * FROM reports", []
+        if kind:
+            sql, args = sql + " WHERE kind = ?", [kind]
+        return [{**dict(r), "data": json.loads(r["data"])}
+                for r in self.db.execute(sql + " ORDER BY id DESC LIMIT ?", (*args, limit))]
+
     # ---- maintenance ----------------------------------------------------------------------------
     def backfill_embeddings(self, batch: int = 32) -> int:
         """Embed findings and concepts stored while the embedder was unavailable. Returns how many."""
@@ -609,7 +735,7 @@ class MemoryStore:
     def stats(self) -> dict:
         counts = {t: self.db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                   for t in ("topics", "episodes", "sources", "findings", "concepts", "relations",
-                            "series", "remarks", "notable", "events")}
+                            "series", "remarks", "notable", "events", "insights", "reports")}
         counts["unembedded_findings"] = self.db.execute("SELECT COUNT(*) FROM findings WHERE embedding IS NULL").fetchone()[0]
         counts["unreviewed_notable"] = self.db.execute("SELECT COUNT(*) FROM notable WHERE reviewed_at IS NULL").fetchone()[0]
         return counts

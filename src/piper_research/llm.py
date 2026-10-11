@@ -27,6 +27,7 @@ class OllamaChat:
         self.calls = 0
         self.tokens = 0
         self.seconds = 0.0
+        self.last_thinking = ""               # the model's raw thinking on the last call (thinking mode)
 
     def json(self, system: str, user: str, schema: dict, retries: int = 1, think: bool | None = None) -> dict:
         """The model's reply to `user` (with instructions `system`), as a dict matching `schema`.
@@ -51,6 +52,7 @@ class OllamaChat:
             self.tokens += data.get("eval_count", 0)
             self.seconds += time.monotonic() - t
             try:
+                self.last_thinking = (data.get("message") or {}).get("thinking") or ""
                 return json.loads(data["message"]["content"])
             except (KeyError, TypeError, json.JSONDecodeError) as e:
                 last = e                            # truncated / malformed: ask again

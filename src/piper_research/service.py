@@ -1,13 +1,15 @@
 """
 The research service. Two ways to run:
-  * a SESSION (--session): research from now for research.session_hours (default 8), then write
-    the session summary (a remark Piper can say) and stop. start_quiet.sh starts one - Piper
-    is quiet, so the PC's model is free. Review the results, then start another when you like.
+  * a SESSION (--session): research from now for research.session_hours, then write the session
+    summary (a remark Piper can say) and stop. session_hours 0 (the default) = no end: research
+    until stopped, with a summary every research.summary_hours. start_quiet.sh starts one - Piper
+    is quiet, so the PC's model is free.
   * timed WINDOWS (research.windows, none by default): research inside them, a summary as each
     one closes. Without windows and without --session the service has nothing to do and exits.
 
-    python3 src/piper_research/service.py --session         an 8-hour session from now
+    python3 src/piper_research/service.py --session         a session from now (research.session_hours)
     python3 src/piper_research/service.py --session 2       ... a 2-hour one
+    python3 src/piper_research/service.py --session 0       ... one with no end (summary every 12 h)
     python3 src/piper_research/service.py                   timed windows (start_piper.sh starts it)
     python3 src/piper_research/service.py --now --once      one cycle now, whatever the time
         --topic "How migrating birds navigate"              ... on this topic
@@ -63,7 +65,7 @@ def main():
     ap = argparse.ArgumentParser(description="Piper's research loop")
     ap.add_argument("--now", action="store_true", help="ignore the schedule")
     ap.add_argument("--session", type=float, nargs="?", const=-1, default=None, metavar="HOURS",
-                    help="research from now for HOURS (default research.session_hours), then summarise and stop")
+                    help="research from now for HOURS (default research.session_hours; 0 = no end), then summarise and stop")
     ap.add_argument("--once", action="store_true", help="one cycle, then stop")
     ap.add_argument("--cycles", type=int, default=0, help="stop after this many cycles")
     ap.add_argument("--topic", help="research this topic (by name)")
@@ -116,20 +118,24 @@ def main():
         print(f"[Research] Overnight: {r.overnight(since)}")
         return
 
-    session_end = None
+    session_end, chunk = None, None
     if args.session is not None:
         hours = cfg["session_hours"] if args.session < 0 else args.session
-        session_end = time.monotonic() + hours * 3600
         args.now = True
-        until = datetime.now() + timedelta(hours=hours)
-        print(f"[Research] Session: {hours:g} h, until about {until:%H:%M} (the cycle in progress then finishes)")
+        if hours > 0:
+            session_end = time.monotonic() + hours * 3600
+            until = datetime.now() + timedelta(hours=hours)
+            print(f"[Research] Session: {hours:g} h, until about {until:%H:%M} (the cycle in progress then finishes)")
+        else:
+            chunk = cfg["summary_hours"] * 3600
+            print(f"[Research] Session with no end - a summary every {cfg['summary_hours']:g} h; Ctrl+C stops")
     elif not args.now and not schedule.windows:
         print("[Research] No research windows set - nothing to do (start_quiet.sh starts a session)")
         return
 
     print(f"[Research] {cfg['model']} via {llm.url}; schedule {'ignored' if args.now else schedule};"
           f" memory {mem.path}")
-    night_start, cycles, announced = None, 0, False
+    night_start, cycles, announced, chunk_start = None, 0, False, 0.0
 
     def finish(why: str):
         try:
@@ -142,12 +148,15 @@ def main():
     while not stop:
         if session_end is not None and time.monotonic() >= session_end:
             break
+        if chunk and night_start is not None and time.monotonic() - chunk_start >= chunk:
+            finish("Summary checkpoint")             # an endless session: close this chunk, start the next
+            night_start, cycles = None, 0
         if args.now or schedule.active(datetime.now()):
             if night_start is None:
-                night_start = utc_now()
+                night_start, chunk_start = utc_now(), time.monotonic()
                 r.new_window()
                 mem.log("research_started", model=cfg["model"],
-                        session_hours=(cfg["session_hours"] if args.session < 0 else args.session) if args.session is not None else None)
+                        session_hours=((cfg["session_hours"] if args.session < 0 else args.session) or None) if args.session is not None else None)
                 print("[Research] Window open - researching")
                 try:
                     if n := mem.backfill_embeddings():

@@ -71,6 +71,12 @@ def test_quote_nearly_verbatim_passes_paraphrase_and_short_fail():
     assert find_quote("sun compass", [TEXT]) is None
 
 
+def test_quote_with_nested_quotes_in_another_style_passes():
+    page = 'Cahn & Polich (2006): "Meditation is used to describe practices that self-regulate the body and mind."'
+    assert find_quote("Cahn & Polich (2006): 'Meditation is used to describe practices that self-regulate the body'", [page]) == 0
+    assert find_quote("the animal's own territory is defended", ["The animals own territory is defended."]) == 0
+
+
 def test_quote_shortened_with_ellipsis_passes_only_if_every_piece_is_there_in_order():
     assert find_quote("Birds use a sun compass by day ... At night many use stars", [TEXT]) == 0
     assert find_quote("Birds use a sun compass by day … many use stars", [TEXT]) == 0
