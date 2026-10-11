@@ -139,6 +139,9 @@ DEFAULTS: dict = {
         "synth_min_findings": 15,         # a topic needs this much to synthesize from
         "synth_topic_gap": 3,             # not again on a topic within its last N cycles
         "synth_near_min": 0.55,           # similarity for the cross-topic "neighbourhood" material
+        "bridge_max_topics": 3,           # a "bridge" concept is shared by 2..this many topics (more = a hub word)
+        "synth_max_tokens": 6000,         # synthesis thinks longer than the judges (thinking + the answer)
+        "synth_timeout_s": 600,
         "max_derived_open": 10,           # per topic: open questions DERIVED from insights (own cap)
         "spawn_similarity": 0.75,         # weekly: 3+ derived questions this alike spawn a sub-topic
         "cross_topic_checks": 3,          # new findings per cycle checked for links to other topics

@@ -166,10 +166,17 @@ trigger her. Research, vision and the head run as usual, and `q` + Enter stops i
 
 ### 5.5 Research
 
-In a research **session** (`./start_quiet.sh` starts one: research from that moment for
-`research.session_hours`, default 8, then a summary and stop; start quiet mode again for another),
-or inside timed windows if you set `research.windows` (none by default), Piper researches
-the topics in her memory (`piper_memory`). Each cycle she:
+`./start_quiet.sh` starts Piper's research **rhythm** (`research.session_hours: 0`, the default):
+research with no end, in a daily structure (`src/piper_research/rhythm.py`, `research.rhythm`):
+
+| Time (local) | Phase |
+|---|---|
+| 05:00-07:00 | **Consolidate** - no new reading: reflect on every topic researched since yesterday, a synthesis pass over every topic, prune stale questions, review insights; on Sundays the **topic decisions** (retire, rest, wake, spawn a sub-topic, propose a new topic). Spare time goes to the re-judging backlog |
+| 07:00 | **Daily report** (and the weekly one on Sundays) - on the dashboard, and a short version Piper can say |
+| 10:00-17:00 | **Pause** - the PC's GPU is left alone |
+| otherwise | **Explore** - research and synthesis cycles, with a checkpoint every hour |
+
+Each research cycle, Piper researches the topics in her memory (`piper_memory`):
 - picks a topic, favouring stale, thin and evenly-argued ones;
 - picks or writes a question;
 - reads Wikipedia and keeps the passages closest to the question;
@@ -183,7 +190,19 @@ with the model's thinking mode on, then rates each finding:
 
 The finding is stored with the page's permanent link (by revision), its certainty
 (established / reported / speculative), and its links in the concept graph. Every few cycles she reflects: where the evidence stands, plus remarks to
-say aloud. When the window closes she writes an overnight summary.
+say aloud.
+
+**Synthesis** (`src/piper_research/synthesis.py`) is the second kind of cycle. It reads nothing new:
+it takes a handful of findings that belong together - a specific concept shared by a few topics,
+the strongest evidence on both sides of a thesis, or a finding and its nearest relatives in other
+topics - and looks for relationships between them. The model reasons in numbered steps, each
+citing the findings it uses, and proposes at most two **insights** (link, tension, hypothesis,
+analogy, pattern), each with 1-2 new questions. Every citation is checked, each insight gets a
+grounding check (unsupported ones are kept as *rejected*, so the trail shows what didn't survive),
+and its questions become open questions tagged **derived**, with their own cap per topic. When
+research later takes up a derived question, the new findings are weighed against the insight and
+its confidence moves. Synthesis runs when a topic is saturating (its recent cycles find little
+new), and at least once every `research.synth_every_max` cycles.
 
 `start_piper.sh` starts the service. To load topics and try it by hand:
 
@@ -200,9 +219,10 @@ Two maintenance commands:
 - `--tidy` prunes the open questions to `research.max_open_questions` per topic and marks the old
   cross-topic flags as reviewed.
 
-A session can also be started by hand: `python3 src/piper_research/service.py --session` (or
-`--session 2` for two hours). For timed research instead, set `research.windows` in `config.yaml`
-(several allowed; a window may cross midnight) or `PIPER_RESEARCH_WINDOWS="01:00-08:00"`.
+The rhythm can also be started by hand: `python3 src/piper_research/service.py --session`;
+`--session 2` instead researches for two hours, writes a summary and stops. For plain timed research
+instead, set `research.windows` in `config.yaml` (several allowed; a window may cross midnight) or
+`PIPER_RESEARCH_WINDOWS="01:00-08:00"`.
 
 ### 5.6 Dashboard
 
@@ -211,9 +231,11 @@ library only) on port 8080: open `http://<jetson-ip>:8080/` from any device on t
 
 | View | Shows |
 |---|---|
-| Now | what Piper is researching, the session's progress, the live activity feed |
-| Topics | each topic's thesis, the supports / neutral / challenges balance, her position and remarks, open questions |
-| Findings | every finding, filterable by topic, stance, relevance and source, with its quote, the judge's reason and a link to the exact page revision |
+| Now | what Piper is researching, the rhythm's phase, the live activity feed |
+| Reports | the daily and weekly reports; insight numbers in them open the insight's trail |
+| Insights | what synthesis concluded. Click one for its **trail**: why those findings were chosen (each back to its source quote and page revision), the numbered reasoning steps and their checks, the grounding check, the questions it raised and whether research took them up, what happened since, and the model's raw thinking (collapsed) |
+| Topics | each topic's stage (explore / synthesize / test / mature / retired), thesis, the supports / neutral / challenges balance, her position and remarks, open questions (derived ones marked) |
+| Findings | every finding, filterable by topic, stance, relevance and source (or just the derived questions), with its quote, the judge's reason and a link to the exact page revision |
 | Sessions | one row per research session: cycles, new findings, off-topic, rejected, the session summary |
 | Notable | contradictions and links between topics, with a "mark reviewed" button (its only write) |
 | Graph | the concept graph: click a concept for its links and the findings behind them |

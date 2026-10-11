@@ -83,12 +83,15 @@ class SynthesisMixin:
                 " UNION SELECT r.object_id, f.topic_id, f.id, f.confidence FROM relations r JOIN findings f ON f.id = r.finding_id"
                 " WHERE f.kind != 'question' AND f.relevance != 'off_topic'"):
             by_concept.setdefault(c, {}).setdefault(t, []).append((conf, fid))
+        # a SPECIFIC concept shared by a few topics - not a hub word ("experience", "brain") that
+        # turns up everywhere and links nothing in particular
+        most = max(2, self.cfg.get("bridge_max_topics", 3))
         cands = []
         for c, topics in by_concept.items():
-            if tid in topics and len(topics) >= 2 and f"bridge:{c}" not in used:
+            if tid in topics and 2 <= len(topics) <= most and f"bridge:{c}" not in used:
                 total = sum(len(v) for v in topics.values())
-                if total >= 4:
-                    cands.append((len(topics) * 10 + min(total, 20), c, topics))
+                if total >= 4 and min(len(v) for v in topics.values()) >= 1:
+                    cands.append((min(total, 12) + 3 * (len(topics) == 2), c, topics))
         if not cands:
             return None
         cands.sort(reverse=True)
@@ -209,7 +212,8 @@ class SynthesisMixin:
                 + "\nFindings:\n" + "\n".join(lines))
         try:
             self._check()
-            r = self.llm.json(P.SYNTHESIZE, user, P.SYNTH_SCHEMA, think=self.judge_think)
+            r = self.llm.json(P.SYNTHESIZE, user, P.SYNTH_SCHEMA, think=self.judge_think,
+                              max_tokens=self.cfg.get("synth_max_tokens", 6000), timeout=self.cfg.get("synth_timeout_s", 600))
             thinking = getattr(self.llm, "last_thinking", "") or ""
             bundle = set(ids)
             steps = []

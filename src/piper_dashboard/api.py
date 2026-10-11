@@ -77,6 +77,8 @@ def status(mem) -> dict:
         left = session["hours"] * 3600 - _age_s(session["start"])
     stats = mem.stats()
     stats["unjudged"] = mem.db.execute("SELECT COUNT(*) FROM findings WHERE judged_by IS NULL AND kind != 'question'").fetchone()[0]
+    stats["live_insights"] = mem.db.execute("SELECT COUNT(*) FROM insights WHERE status IN ('new', 'supported', 'weakened')").fetchone()[0]
+    ph = mem.db.execute("SELECT data FROM events WHERE kind = 'phase' ORDER BY id DESC LIMIT 1").fetchone()
     return {
         "researching": bool(session and session["active"] and _age_s(last["ts"] if last else None) is not None
                             and _age_s(last["ts"]) < 900),
@@ -84,6 +86,7 @@ def status(mem) -> dict:
         "last_event": {"ts": last["ts"], "kind": last["kind"], "age_s": _age_s(last["ts"])} if last else None,
         "current": {"topic": cur["name"], "question": cur["angle"], "started": cur["started_at"]} if cur else None,
         "stats": stats,
+        "phase": json.loads(ph[0]).get("phase") if ph else None,
     }
 
 
@@ -104,6 +107,11 @@ def events(mem, since: int = 0, limit: int = 150) -> list[dict]:
 
 
 # ---- topics -------------------------------------------------------------------------------------------
+def derived_ids(mem) -> set[int]:
+    return {r[0] for r in mem.db.execute("SELECT ft.finding_id FROM finding_tags ft JOIN tags t ON t.id = ft.tag_id"
+                                         " WHERE t.name = 'derived'")}
+
+
 def open_questions(mem, topic_id: int) -> list[str]:
     asked = {norm(r[0]) for r in mem.db.execute("SELECT angle FROM episodes WHERE topic_id = ?", (topic_id,))}
     rows = mem.db.execute("SELECT text FROM findings WHERE topic_id = ? AND kind = 'question' ORDER BY id DESC", (topic_id,))
@@ -123,12 +131,18 @@ def topics(mem) -> list[dict]:
         eps = mem.db.execute("SELECT COUNT(*) FROM episodes WHERE topic_id = ?", (tid,)).fetchone()[0]
         remarks = {r["kind"]: {"text": tidy_remark(r["text"]), "written_at": r["written_at"]} for r in mem.remarks(tid)}
         oq = open_questions(mem, tid)
+        derived = {r[0] for r in mem.db.execute(
+            "SELECT f.text FROM findings f JOIN finding_tags ft ON ft.finding_id = f.id JOIN tags g ON g.id = ft.tag_id"
+            " WHERE f.topic_id = ? AND g.name = 'derived'", (tid,))}
         out.append({
             "id": tid, "name": t["name"], "thesis": t["thesis"], "description": t["description"], "origin": t["origin"],
             "status": t["status"], "novelty": t["novelty"], "progress": t["progress"], "saturation": t["saturation"],
             "findings": n, "by_source": by_src, "episodes": eps, "last_researched": last[0] if last else None,
             "balance": mem.stance_balance(tid), "remarks": remarks,
             "open_questions": oq[:30], "open_questions_total": len(oq),
+            "derived_questions": [q for q in oq if q in derived], "stage": t.get("stage", "explore"),
+            "insights": mem.db.execute("SELECT COUNT(*) FROM insights WHERE topic_id = ? AND status IN"
+                                       " ('new', 'supported', 'weakened')", (tid,)).fetchone()[0],
         })
     return out
 
@@ -147,6 +161,9 @@ def findings(mem, topic: int | None = None, stance: str = "", relevance: str = "
         where.append("f.kind != 'question'")
     elif kind == "questions":
         where.append("f.kind = 'question'")
+    elif kind == "derived":
+        where.append("f.kind = 'question' AND EXISTS (SELECT 1 FROM finding_tags ft JOIN tags g ON g.id = ft.tag_id"
+                     " WHERE ft.finding_id = f.id AND g.name = 'derived')")
     if judged == "no":
         where.append("f.judged_by IS NULL")
     if source:
@@ -162,6 +179,7 @@ def findings(mem, topic: int | None = None, stance: str = "", relevance: str = "
     rows = mem.db.execute(f"SELECT f.*, t.name AS topic_name FROM findings f JOIN topics t ON t.id = f.topic_id{sql_where}"
                           " ORDER BY f.id DESC LIMIT ? OFFSET ?", (*args, limit, offset)).fetchall()
     items = []
+    derived = derived_ids(mem)
     for r in rows:
         srcs = [dict(s) for s in mem.db.execute(
             "SELECT s.kind, s.title, s.url, s.meta, fs.excerpt FROM finding_sources fs JOIN sources s ON s.id = fs.source_id"
@@ -173,6 +191,7 @@ def findings(mem, topic: int | None = None, stance: str = "", relevance: str = "
             "stance": r["stance"], "relevance": r["relevance"], "reason": r["stance_reason"],
             "judged_by": r["judged_by"], "certainty": certainty(r["confidence"]), "status": r["status"],
             "relates_to": r["relates_to"], "created_at": r["created_at"], "sources": srcs,
+            "tags": ["derived"] if r["id"] in derived else [],
         })
     return {"total": total, "items": items}
 
@@ -262,3 +281,93 @@ def concept(mem, concept_id: int) -> dict | None:
     return {"id": c["id"], "name": c["name"], "aliases": c["aliases"],
             "relations": [{"subject": r["s"], "predicate": r["predicate"], "object": r["o"], "finding": r["text"],
                            "finding_id": r["fid"], "topic": r["topic"]} for r in rels]}
+
+
+# ---- insights: what synthesis concluded, and the trail that led there ------------------------------------
+def _finding_card(mem, fid: int, topics: dict) -> dict | None:
+    f = mem.db.execute("SELECT * FROM findings WHERE id = ?", (fid,)).fetchone()
+    if not f:
+        return {"id": fid, "missing": True}
+    src = mem.db.execute("SELECT s.kind, s.title, s.url, s.meta, fs.excerpt FROM finding_sources fs JOIN sources s"
+                         " ON s.id = fs.source_id WHERE fs.finding_id = ? ORDER BY s.id LIMIT 1", (fid,)).fetchone()
+    source = None
+    if src:
+        source = {"kind": src["kind"], "title": src["title"], "url": src["url"], "excerpt": src["excerpt"],
+                  "revid": json.loads(src["meta"] or "{}").get("revid", "")}
+    return {"id": fid, "text": f["text"], "topic": topics.get(f["topic_id"], ""), "stance": f["stance"],
+            "relevance": f["relevance"], "certainty": certainty(f["confidence"]), "source": source}
+
+
+def insights(mem, status: str = "live", topic: int | None = None, limit: int = 200) -> list[dict]:
+    where, args = [], []
+    if status == "live":
+        where.append("status IN ('new', 'supported', 'weakened')")
+    elif status and status != "all":
+        where.append("status = ?"); args.append(status)
+    if topic:
+        where.append("topic_id = ?"); args.append(topic)
+    rows = mem.db.execute("SELECT id FROM insights" + (" WHERE " + " AND ".join(where) if where else "")
+                          + " ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()
+    topics = {r["id"]: r["name"] for r in mem.db.execute("SELECT id, name FROM topics")}
+    out = []
+    for (iid,) in rows:
+        i = mem.get_insight(iid)
+        ev = [e for e in i["events"] if e["kind"] == "evidence"]
+        out.append({"id": i["id"], "statement": i["statement"], "kind": i["kind"], "confidence": i["confidence"],
+                    "status": i["status"], "topic": topics.get(i["topic_id"], ""), "created_at": i["created_at"],
+                    "updated_at": i["updated_at"], "basis": len(i["basis"]), "questions": len(i["questions"]),
+                    "evidence": len(ev), "verdict": i["trace"].get("grounding", {}).get("verdict", ""),
+                    "strategy": i["trace"].get("selection", {}).get("strategy", "")})
+    return out
+
+
+def insight(mem, insight_id: int) -> dict | None:
+    """One insight's full trail: why that material, the material (each finding back to its source),
+    the reasoning steps and their checks, the grounding check, the questions it raised (and whether
+    research has taken them up), its later history, and the model's raw thinking."""
+    i = mem.get_insight(insight_id)
+    if not i:
+        return None
+    topics = {r["id"]: r["name"] for r in mem.db.execute("SELECT id, name FROM topics")}
+    tr = i["trace"]
+    sel = tr.get("selection", {})
+    material = [_finding_card(mem, fid, topics) for fid in sel.get("findings", i["basis"])]
+    for m in material:
+        m["basis"] = m["id"] in i["basis"]
+    questions = []
+    for qid in i["questions"]:
+        q = mem.db.execute("SELECT id, text, topic_id FROM findings WHERE id = ?", (qid,)).fetchone()
+        if not q:
+            continue
+        ep = mem.db.execute("SELECT id, started_at, outcome, stats FROM episodes WHERE angle = ? AND kind = 'research'"
+                            " ORDER BY id LIMIT 1", (q["text"],)).fetchone()
+        questions.append({"id": q["id"], "text": q["text"], "topic": topics.get(q["topic_id"], ""),
+                          "researched": {"episode": ep["id"], "when": ep["started_at"], "outcome": ep["outcome"],
+                                         "new": json.loads(ep["stats"]).get("new", 0)} if ep else None})
+    events = []
+    for e in i["events"]:
+        e = dict(e)
+        if e.get("findings"):
+            e["finding_cards"] = [_finding_card(mem, f, topics) for f in e["findings"]]
+        events.append(e)
+    ep = mem.db.execute("SELECT id, started_at FROM episodes WHERE id = ?", (i["episode_id"],)).fetchone() if i["episode_id"] else None
+    return {"id": i["id"], "statement": i["statement"], "kind": i["kind"], "confidence": i["confidence"],
+            "status": i["status"], "topic": topics.get(i["topic_id"], ""), "created_at": i["created_at"],
+            "episode": dict(ep) if ep else None,
+            "selection": {"strategy": sel.get("strategy", ""), "why": sel.get("why", "")},
+            "material": material, "steps": tr.get("steps", []), "grounding": tr.get("grounding", {}),
+            "stray_citations": tr.get("stray_citations", []), "thinking": tr.get("thinking", ""),
+            "model": tr.get("model", ""), "prompt_version": tr.get("prompt_version"),
+            "questions": questions, "events": events}
+
+
+# ---- reports -------------------------------------------------------------------------------------------
+def reports(mem, kind: str = "", limit: int = 60) -> list[dict]:
+    return [{"id": r["id"], "kind": r["kind"], "period_start": r["period_start"], "period_end": r["period_end"],
+             "created_at": r["created_at"], "title": r["text"].splitlines()[0].lstrip("# ") if r["text"] else ""}
+            for r in mem.reports(kind or None, limit=limit)]
+
+
+def report(mem, report_id: int) -> dict | None:
+    r = mem.db.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
+    return {**dict(r), "data": json.loads(r["data"])} if r else None

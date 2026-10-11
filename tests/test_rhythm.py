@@ -35,7 +35,7 @@ class CurLLM:
     def __init__(self, inner, propose=False):
         self.inner, self.propose, self.model = inner, propose, "fake"
 
-    def json(self, system, user, schema, retries=1, think=None):
+    def json(self, system, user, schema, retries=1, think=None, **kw):
         if schema is P.DAILY_SCHEMA:
             return {"thinking": "I suspect birds and plants share a trick.", "stuck": "Quantum biology is thin.",
                     "next": "Plant magnetoreception.", "spoken": "I think birds and plants share a trick."}

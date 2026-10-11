@@ -60,6 +60,14 @@ class Dashboard:
                                  vague=one("vague") == "1")
             if route == "/api/concept":
                 return api.concept(mem, int(one("id", "0")))
+            if route == "/api/insights":
+                return api.insights(mem, status=one("status", "live"), topic=int(one("topic", "0") or 0) or None)
+            if route == "/api/insight":
+                return api.insight(mem, int(one("id", "0")))
+            if route == "/api/reports":
+                return api.reports(mem, kind=one("kind"))
+            if route == "/api/report":
+                return api.report(mem, int(one("id", "0")))
             if route == "/api/findings":
                 return api.findings(mem, topic=int(one("topic", "0") or 0) or None, stance=one("stance"),
                                     relevance=one("relevance"), source=one("source"), q=one("q").strip(),

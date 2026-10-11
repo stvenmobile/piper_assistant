@@ -324,7 +324,8 @@ class Curator:
                          + (f" ({c['before']:.2f} -> {c['after']:.2f})" if c.get("before") is not None and c.get("after") is not None else ""))
         lines += ["", "## Where I'm stuck", tidy_remark(narrative.get("stuck", "")) or "_(nothing stuck)_"]
         for s in stuck:
-            lines.append(f"- {s['topic']}: saturation {s['saturation'] or 0:.0%}, {s['stalled']} of {s['cycles']} cycles stalled today")
+            lines.append(f"- {s['topic']}: saturation {s['saturation'] or 0:.0%}"
+                         + (f", {s['stalled']} of {s['cycles']} research cycles stalled" if s["cycles"] else ""))
         lines += ["", "## What's next", tidy_remark(narrative.get("next", "")) or ""]
         for name, qs in nxt.items():
             for q in qs:

@@ -23,7 +23,7 @@ class SynthLLM(FakeLLM):
         self.effect = "supports"
         self.last_thinking = ""
 
-    def json(self, system, user, schema, retries=1, think=None):
+    def json(self, system, user, schema, retries=1, think=None, **kw):
         if schema is P.SYNTH_SCHEMA:
             self.calls += 1
             self.last_thinking = "Hmm - both mention radical pairs..."

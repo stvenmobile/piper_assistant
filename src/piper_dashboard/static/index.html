@@ -91,6 +91,35 @@ tr.sum td { border-top: none; padding-top: 0; color: var(--muted); }
 #gside { max-height: 66vh; overflow-y: auto; }
 .rel { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
 .rel .p { color: var(--accent); }
+/* insights + reports */
+.ins { padding: 12px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.ins:first-child { border-top: none; }
+.ins:hover .st { color: var(--accent); }
+.ins .st { font-size: 15px; }
+.conf { display: inline-block; width: 60px; height: 6px; border-radius: 3px; background: var(--panel2); vertical-align: middle; overflow: hidden; }
+.conf span { display: block; height: 100%; background: var(--accent); }
+.chip.derived { background: color-mix(in srgb, #a77de0 24%, transparent); color: #a77de0; }
+.chip.ok { background: color-mix(in srgb, var(--sup) 22%, transparent); color: var(--sup); }
+.trail { position: relative; padding-left: 26px; }
+.trail::before { content: ""; position: absolute; left: 8px; top: 6px; bottom: 6px; width: 2px; background: var(--line); }
+.stage { position: relative; margin-bottom: 18px; }
+.stage::before { content: attr(data-n); position: absolute; left: -26px; top: 0; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 11px; text-align: center; line-height: 18px; font-weight: 600; }
+.stage h3 { font-size: 14px; margin: 0 0 6px; }
+.fc { background: var(--panel2); border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: 13px; border-left: 3px solid transparent; }
+.fc.basis { border-left-color: var(--accent); }
+.fc.flash { outline: 2px solid var(--warn); }
+.fc .quote { border-left: 3px solid var(--line); padding: 2px 8px; color: var(--muted); margin: 6px 0 0; font-style: italic; }
+.step { margin: 6px 0; } .step .n { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+a.cite { font-size: 12px; margin-left: 4px; }
+.big-st { font-size: 18px; margin: 4px 0 8px; }
+pre.think { white-space: pre-wrap; background: var(--panel2); border-radius: 8px; padding: 10px; font-size: 12px; color: var(--muted); max-height: 50vh; overflow: auto; }
+.md h1 { font-size: 20px; margin: 0 0 10px; } .md h2 { font-size: 15px; margin: 18px 0 6px; color: var(--accent); }
+.md ul { padding-left: 20px; margin: 4px 0; } .md li { margin: 4px 0; } .md p { margin: 6px 0; }
+.md code { background: var(--bg-chip); border-radius: 4px; padding: 0 5px; font-size: 12px; color: #a77de0; }
+.rep { padding: 10px 0; border-top: 1px solid var(--line); cursor: pointer; } .rep:first-child { border-top: none; }
+.cols { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
+@media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .gwrap { grid-template-columns: 1fr; } .pair { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { nav { margin-left: 0; width: 100%; overflow-x: auto; } .grid { grid-template-columns: 1fr; } }
 </style>
@@ -101,6 +130,8 @@ tr.sum td { border-top: none; padding-top: 0; color: var(--muted); }
   <span class="hstat" id="hstate">loading…</span>
   <nav>
     <button data-view="now" class="active">Now</button>
+    <button data-view="reports">Reports</button>
+    <button data-view="insights">Insights</button>
     <button data-view="topics">Topics</button>
     <button data-view="findings">Findings</button>
     <button data-view="sessions">Sessions</button>
@@ -121,6 +152,26 @@ tr.sum td { border-top: none; padding-top: 0; color: var(--muted); }
     </div>
   </section>
 
+  <section class="view" id="reports">
+    <div class="cols">
+      <div class="panel"><h2>Reports</h2><div id="repList"></div></div>
+      <div class="panel md" id="repBody"><div class="muted">Pick a report.</div></div>
+    </div>
+  </section>
+
+  <section class="view" id="insights">
+    <div class="panel">
+      <div class="filters">
+        <select id="iStatus"><option value="live">Current (new, supported, weakened)</option><option value="supported">Supported</option>
+          <option value="weakened">Weakened</option><option value="dropped">Dropped</option><option value="rejected">Rejected by the check</option><option value="all">All</option></select>
+        <select id="iTopic"><option value="">All topics</option></select>
+        <span class="muted" id="iCount"></span>
+      </div>
+    </div>
+    <div class="panel" id="iList"></div>
+    <div class="panel" id="iDetail" style="display:none"></div>
+  </section>
+
   <section class="view" id="topics"><div class="grid" id="topicGrid"></div></section>
 
   <section class="view" id="findings">
@@ -130,7 +181,7 @@ tr.sum td { border-top: none; padding-top: 0; color: var(--muted); }
         <select id="fStance"><option value="">Any stance</option><option>supports</option><option>challenges</option><option>neutral</option></select>
         <select id="fRel"><option value="">Any relevance</option><option>core</option><option>background</option><option value="off_topic">off topic</option></select>
         <select id="fSrc"><option value="">Any source</option><option value="wikipedia">Wikipedia</option><option value="sep">Stanford Encyclopedia</option></select>
-        <select id="fKind"><option value="claims">Findings</option><option value="questions">Open questions</option><option value="all">Both</option></select>
+        <select id="fKind"><option value="claims">Findings</option><option value="questions">Open questions</option><option value="derived">Derived questions</option><option value="all">Both</option></select>
         <input type="search" id="fQ" placeholder="Search findings…">
       </div>
     </div>
@@ -193,6 +244,8 @@ function show(v) {
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.view === v));
   document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === v));
   if (v === "topics") loadTopics();
+  if (v === "insights") loadInsights();
+  if (v === "reports") loadReports();
   if (v === "findings") loadFindings();
   if (v === "sessions") loadSessions();
   if (v === "notable") loadNotable();
@@ -207,6 +260,7 @@ async function loadStatus() {
     const sess = s.session;
     let h = s.researching ? "<b>Researching</b>" : "<b>Idle</b>";
     if (s.researching && s.seconds_left != null) h += ` · ${hm(Math.max(0, s.seconds_left))} left in this session`;
+    if (s.phase) h += ` · phase: <b>${esc(s.phase)}</b>`;
     else if (sess && !sess.active) h += ` · last session ended ${when(sess.end)}`;
     $("#hstate").innerHTML = h;
     const c = s.current;
@@ -215,7 +269,7 @@ async function loadStatus() {
     const st = s.stats, t = sess ? sess.totals : {};
     const k = [[sess ? sess.cycles : 0, s.researching ? "cycles this session" : "cycles last session"], [t.new ?? 0, "new findings"], [t.off_topic ?? 0, "dropped off-topic"],
                [t.rejected ?? 0, "quotes not found"], [st.findings, "findings in memory"], [st.unjudged, "awaiting the judge"],
-               [st.concepts, "concepts"], [st.sources, "pages read"]];
+               [st.live_insights ?? 0, "insights"], [st.concepts, "concepts"], [st.sources, "pages read"]];
     $("#kpis").innerHTML = k.map(([v, l]) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
   } catch (e) { $("#hstate").textContent = "Can't reach Piper's memory: " + e.message; }
 }
@@ -241,6 +295,16 @@ function evHTML(e) {
     case "reflected_raw": return null;
     case "research_error": case "judge_failed": case "sep_failed": return [`${chip("problem", "warn")} ${esc(e.error)}`];
     case "concept_judged": return null;
+    case "synthesized": return [`Synthesis (${esc(e.strategy)}): ${e.insights} insight(s)${e.rejected ? `, ${e.rejected} rejected` : ""}`, true];
+    case "insight": return [`${chip(e.status === "rejected" ? "insight rejected" : "insight", e.status === "rejected" ? "warn" : "derived")}
+      <a href="#" onclick="openInsight(${e.insight});return false">${esc(e.statement)}</a>`];
+    case "insight_evidence": return [`Evidence for insight <a href="#" onclick="openInsight(${e.insight});return false">#${e.insight}</a>: ${esc(e.effect)}`];
+    case "checkpoint": return [`Checkpoint: ${e.cycles} cycles this hour, ${e.unjudged} awaiting the judge`];
+    case "consolidated": return [`Consolidated: ${e.reflected ?? 0} reflections, ${e.synthesized ?? 0} syntheses, ${e.pruned ?? 0} questions pruned${e.weekly ? ", weekly decisions" : ""}`, true];
+    case "report": return [`${esc(e.report_kind)} report written <a href="#" onclick="openReport(${e.report});return false">open</a>`, true];
+    case "topic_decision": return [`${chip(e.action, "sep")} ${esc(e.topic)}: ${esc(e.reason)}`, true];
+    case "phase": return [`Phase: ${esc(e.phase)}`, true];
+    case "questions_pruned": return [`Pruned ${e.deleted} stale questions`];
     default: return [`${esc(e.kind)}`];
   }
 }
@@ -275,13 +339,14 @@ async function loadTopics(tries = 3) {
     const r = t.remarks, rem = (k, l) => r[k] ? `<div class="remark"><div class="k">${l}</div>${esc(r[k].text)}</div>` : "";
     const src = Object.entries(t.by_source).map(([k, v]) => `${SRC[k] || k} ${v}`).join(" · ");
     return `<div class="panel topic">
-      <h3>${esc(t.name)}</h3>
+      <h3>${esc(t.name)} <span class="chip">${esc(t.stage || "explore")}</span>${t.status !== "active" ? ` <span class="chip warn">${esc(t.status)}</span>` : ""}</h3>
       ${t.thesis ? `<div class="thesis">${esc(t.thesis)}</div>` : `<div class="thesis">Open exploration (no thesis)</div>`}
       ${t.thesis ? `<div class="bar"><span style="width:${100 * s / tot}%;background:var(--sup)"></span><span style="width:${100 * n / tot}%;background:var(--neu)"></span><span style="width:${100 * c / tot}%;background:var(--cha)"></span></div>
       <div class="legend"><span style="color:var(--sup)">${s} support</span><span>${n} neutral</span><span style="color:var(--cha)">${c} challenge</span></div>` : ""}
       ${rem("position", "Where it stands")}${rem("learned", "Most interesting")}${rem("unsure", "Still unclear")}
-      <details><summary>${t.open_questions_total} open questions</summary><ul>${t.open_questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul></details>
-      <div class="meta">${t.findings} findings (${src}) · ${t.episodes} cycles · last studied ${when(t.last_researched)}
+      <details><summary>${t.open_questions_total} open questions${t.derived_questions.length ? ` (${t.derived_questions.length} derived)` : ""}</summary><ul>${t.open_questions.map(q =>
+        `<li>${esc(q)}${t.derived_questions.includes(q) ? ` <span class="chip derived">derived</span>` : ""}</li>`).join("")}</ul></details>
+      <div class="meta">${t.findings} findings (${src}) · ${t.episodes} cycles · ${t.insights} insights · last studied ${when(t.last_researched)}
         · <a href="#" data-topic="${t.id}">see findings</a></div>
     </div>`;
   }).join("");
@@ -306,7 +371,7 @@ async function loadFindings() {
       ${f.sources.length > 1 ? ` <span class="muted">+${f.sources.length - 1} more</span>` : ""}` : "";
     return `<div class="f">
       <div class="text">${esc(f.text)}</div>
-      <div class="chips">${f.kind === "question" ? `<span class="chip">open question</span>` :
+      <div class="chips">${f.kind === "question" ? `<span class="chip">open question</span>${f.tags.includes("derived") ? `<span class="chip derived">derived</span>` : ""}` :
         `<span class="chip ${f.stance}">${f.stance}</span><span class="chip ${f.relevance === "off_topic" ? "off_topic" : ""}">${f.relevance.replace("_", " ")}</span>
          <span class="chip">${esc(f.certainty)}</span>${f.status !== "new" ? `<span class="chip">${esc(f.status)} #${f.relates_to}</span>` : ""}
          ${f.judged_by ? "" : `<span class="chip warn">not yet judged</span>`}`}
@@ -437,6 +502,112 @@ async function pickConcept(n) {
     const mx = e.clientX - r.left, my = e.clientY - r.top;
     gView.x = mx - (mx - gView.x) * k / gView.k; gView.y = my - (my - gView.y) * k / gView.k; gView.k = k; drawGraph(); }, {passive: false});
 })();
+
+// ---- insights: the list, and one insight's trail ------------------------------------------------------
+const conf = c => `<span class="conf" title="confidence ${c.toFixed(2)}"><span style="width:${Math.round(c * 100)}%"></span></span> <span class="muted">${c.toFixed(2)}</span>`;
+const STATUS_CLS = {supported: "supports", weakened: "challenges", dropped: "warn", rejected: "warn"};
+["#iStatus", "#iTopic"].forEach(id => $(id).onchange = loadInsights);
+async function loadInsights() {
+  if (!topicList.length) await loadTopics();
+  const sel = $("#iTopic"), keep = sel.value;
+  sel.innerHTML = `<option value="">All topics</option>` + topicList.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  sel.value = keep;
+  const xs = await get(`/api/insights?status=${$("#iStatus").value}&topic=${sel.value}`);
+  $("#iCount").textContent = `${xs.length} shown`;
+  $("#iDetail").style.display = "none"; $("#iList").style.display = "";
+  $("#iList").innerHTML = xs.map(i => `<div class="ins" onclick="openInsight(${i.id})">
+      <div class="st">${esc(i.statement)}</div>
+      <div class="chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <span class="chip derived">${esc(i.kind)}</span> ${conf(i.confidence)} <span class="chip ${STATUS_CLS[i.status] || ""}">${esc(i.status)}</span>
+        <span class="chip">${esc(i.topic)}</span>
+        <span class="muted">${i.basis} findings · ${i.questions} questions · ${i.evidence} evidence · ${when(i.created_at)} · #${i.id}</span></div>
+    </div>`).join("") || `<div class="muted">No insights yet - synthesis starts once topics have enough findings.</div>`;
+}
+function fcard(f) {
+  if (f.missing) return `<div class="fc">F${f.id} (no longer in memory)</div>`;
+  const s = f.source;
+  return `<div class="fc ${f.basis ? "basis" : ""}" id="fc${f.id}"><b>F${f.id}</b> ${esc(f.text)}
+    <div class="meta"><span class="chip">${esc(f.topic)}</span> <span class="chip ${f.stance}">${f.stance}</span> <span class="chip">${esc(f.certainty)}</span>
+    ${f.basis ? ` <span class="chip sep">basis</span>` : ""}
+    ${s ? ` · ${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>` : esc(s.title)} <span class="muted">${esc(SRC[s.kind] || s.kind)}${s.revid ? ` rev. ${esc(s.revid)}` : ""}</span>` : ""}</div>
+    ${s && s.excerpt ? `<div class="quote">“${esc(s.excerpt)}”</div>` : ""}</div>`;
+}
+function flashF(id) { const el = document.getElementById("fc" + id); if (!el) return;
+  el.scrollIntoView({behavior: "smooth", block: "center"}); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1600); }
+async function openInsight(id) {
+  if (view !== "insights") show("insights");
+  const i = await get("/api/insight?id=" + id);
+  if (!i) return;
+  const cites = cs => (cs || []).map(c => `<a class="cite" href="#" onclick="flashF(${c});return false">F${c}</a>`).join("");
+  const VERDICT = {grounded: "ok", partly: "warn", unsupported: "challenges", unchecked: ""};
+  const evHTML2 = e => {
+    if (e.kind === "created") return `Created (confidence ${(+e.confidence).toFixed(2)}, ${esc(e.status)})`;
+    if (e.kind === "restated") return `Restated by a later synthesis: “${esc(e.statement)}”`;
+    if (e.kind === "review") return `Review: ${esc(e.note || "")}`;
+    if (e.kind === "evidence") return `Research on its question: <b>${esc(e.effect)}</b>${e.reason ? " - " + esc(e.reason) : ""}
+      ${e.confidence_before != null ? ` <span class="muted">(${(+e.confidence_before).toFixed(2)} → ${(+e.confidence_after).toFixed(2)})</span>` : ""}
+      ${(e.finding_cards || []).map(fcard).join("")}`;
+    return esc(e.kind);
+  };
+  $("#iList").style.display = "none";
+  const d = $("#iDetail"); d.style.display = "";
+  d.innerHTML = `<button class="btn" onclick="loadInsights()">← all insights</button>
+    <div class="big-st">${esc(i.statement)}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip derived">${esc(i.kind)}</span> ${conf(i.confidence)}
+      <span class="chip ${STATUS_CLS[i.status] || ""}">${esc(i.status)}</span><span class="chip">${esc(i.topic)}</span>
+      <span class="muted">${when(i.created_at)} · ${esc(i.model)} · prompt v${esc(i.prompt_version)} · #${i.id}</span></div>
+    <div class="trail" style="margin-top:16px">
+      <div class="stage" data-n="1"><h3>Why these findings</h3>
+        <div><span class="chip sep">${esc(i.selection.strategy)}</span> ${esc(i.selection.why)}</div>
+        ${i.material.map(fcard).join("")}</div>
+      <div class="stage" data-n="2"><h3>Reasoning</h3>
+        ${i.steps.map((s, k) => `<div class="step"><span class="n">${k + 1}.</span>${esc(s.text)}${cites(s.cites)}
+          <span class="chip ${s.check === "ok" ? "ok" : "warn"}">${esc(s.check)}</span></div>`).join("") || `<div class="muted">No steps recorded.</div>`}
+        ${i.stray_citations.length ? `<div class="meta">Cited findings that weren't in the material: ${i.stray_citations.join(", ")}</div>` : ""}</div>
+      <div class="stage" data-n="3"><h3>The insight, checked</h3>
+        <div>${esc(i.statement)}</div>
+        <div style="margin-top:6px"><span class="chip ${VERDICT[i.grounding.verdict] || ""}">${esc(i.grounding.verdict || "unchecked")}</span>
+          <span class="muted">${esc(i.grounding.reason || "")}</span></div></div>
+      <div class="stage" data-n="4"><h3>Questions it raised</h3>
+        ${i.questions.map(q => `<div class="step">${esc(q.text)} <span class="chip derived">derived</span>
+          ${q.researched ? `<span class="muted">researched ${when(q.researched.when)} - ${esc(q.researched.outcome)}, ${q.researched.new} new</span>` : `<span class="muted">not researched yet</span>`}</div>`).join("") || `<div class="muted">None.</div>`}</div>
+      <div class="stage" data-n="5"><h3>What happened since</h3>
+        ${i.events.map(e => `<div class="step"><span class="n">${when(e.ts)}</span>${evHTML2(e)}</div>`).join("")}</div>
+    </div>
+    <details><summary>Raw thinking (the model's scratchpad - not a reliable account of how it decided)</summary>
+      <pre class="think">${esc(i.thinking || "(none recorded)")}</pre></details>
+    ${i.grounding.thinking ? `<details><summary>The checker's raw thinking</summary><pre class="think">${esc(i.grounding.thinking)}</pre></details>` : ""}`;
+  window.scrollTo(0, 0);
+}
+
+// ---- reports -------------------------------------------------------------------------------------------
+function md(text) {
+  const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/_(.+?)_/g, "<i>$1</i>").replace(/`(.+?)`/g, "<code>$1</code>")
+    .replace(/insight #(\d+)/g, `<a href="#" onclick="openInsight($1);return false">insight #$1</a>`)
+    .replace(/\(#(\d+)/g, `(<a href="#" onclick="openInsight($1);return false">#$1</a>`);
+  let html = "", list = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("- ")) { if (!list) { html += "<ul>"; list = true; } html += `<li>${inline(line.slice(2))}</li>`; continue; }
+    if (list) { html += "</ul>"; list = false; }
+    if (line.startsWith("## ")) html += `<h2>${inline(line.slice(3))}</h2>`;
+    else if (line.startsWith("# ")) html += `<h1>${inline(line.slice(2))}</h1>`;
+    else if (line.trim()) html += `<p>${inline(line)}</p>`;
+  }
+  return html + (list ? "</ul>" : "");
+}
+async function loadReports() {
+  const rs = await get("/api/reports");
+  $("#repList").innerHTML = rs.map(r => `<div class="rep" onclick="openReport(${r.id})"><span class="chip ${r.kind === "weekly" ? "sep" : ""}">${esc(r.kind)}</span>
+    ${esc(r.title.replace(/^(Daily|Weekly) report - /, ""))}<div class="meta">${when(r.created_at)}</div></div>`).join("")
+    || `<div class="muted">The first report comes at 07:00 after a night of research.</div>`;
+  if (rs.length && $("#repBody").dataset.id == null) openReport(rs[0].id);
+}
+async function openReport(id) {
+  if (view !== "reports") { show("reports"); }
+  const r = await get("/api/report?id=" + id);
+  $("#repBody").dataset.id = id;
+  $("#repBody").innerHTML = r ? md(r.text) : `<div class="muted">Not found.</div>`;
+}
 
 loadStatus(); loadEvents();
 setInterval(loadStatus, 10000);

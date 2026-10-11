@@ -29,14 +29,17 @@ class OllamaChat:
         self.seconds = 0.0
         self.last_thinking = ""               # the model's raw thinking on the last call (thinking mode)
 
-    def json(self, system: str, user: str, schema: dict, retries: int = 1, think: bool | None = None) -> dict:
+    def json(self, system: str, user: str, schema: dict, retries: int = 1, think: bool | None = None,
+             max_tokens: int | None = None, timeout: float | None = None) -> dict:
         """The model's reply to `user` (with instructions `system`), as a dict matching `schema`.
-        think: qwen3's thinking mode for this call (None = the default set at construction)."""
+        think: qwen3's thinking mode for this call (None = the default set at construction);
+        max_tokens / timeout: this call's own budget (synthesis thinks for longer)."""
         body = {
             "model": self.model, "stream": False, "think": self.think if think is None else think,
             "keep_alive": self.keep_alive,
             "format": schema,
-            "options": {"temperature": self.temperature, "num_ctx": self.num_ctx, "num_predict": self.max_tokens},
+            "options": {"temperature": self.temperature, "num_ctx": self.num_ctx,
+                        "num_predict": max_tokens or self.max_tokens},
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         }
         last = None
@@ -44,7 +47,7 @@ class OllamaChat:
             t = time.monotonic()
             req = urllib.request.Request(self.url, json.dumps(body).encode(), {"Content-Type": "application/json"})
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
                     data = json.load(r)
             except (urllib.error.URLError, OSError, ValueError) as e:
                 raise LLMError(f"{self.model} via {self.url}: {e}") from e

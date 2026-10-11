@@ -79,3 +79,33 @@ def test_events_feed(mem):
     ev = api.events(mem)
     assert ev[0]["kind"] == "research_started" and ev[-1]["kind"] == "research_ended"
     assert api.events(mem, since=ev[-1]["id"]) == []
+
+
+def test_insights_list_and_trail(mem):
+    a, b = [r[0] for r in mem.db.execute("SELECT id FROM findings WHERE kind != 'question' ORDER BY id LIMIT 2")]
+    tid = mem.topics()[0]["id"]
+    trace = {"selection": {"strategy": "tension", "why": "both sides", "findings": [a, b]},
+             "steps": [{"text": "A pulls against B.", "cites": [a, b], "check": "ok"}],
+             "grounding": {"verdict": "grounded", "reason": "they do"}, "thinking": "hmm", "model": "m", "prompt_version": 1}
+    iid = mem.add_insight("The Moon dominates but wind matters locally.", tid, [a, b], kind="tension", trace=trace)
+    src = mem.source("llm", "m")
+    q = mem.add_finding("Does wind change tidal range in bays?", tid, kind="question", sources=[src], tags=["derived"])
+    mem.link_question(iid, q)
+    mem.insight_event(iid, "evidence", effect="supports", findings=[a], reason="r", confidence_before=0.5, confidence_after=0.6)
+    lst = api.insights(mem)
+    assert lst[0]["id"] == iid and lst[0]["evidence"] == 1 and lst[0]["verdict"] == "grounded"
+    d = api.insight(mem, iid)
+    assert d["selection"]["strategy"] == "tension" and [m["basis"] for m in d["material"]] == [True, True]
+    assert d["material"][0]["source"]["excerpt"] is not None and d["thinking"] == "hmm"
+    assert d["questions"][0]["text"].startswith("Does wind") and d["questions"][0]["researched"] is None
+    assert d["events"][-1]["finding_cards"][0]["id"] == a
+    assert api.findings(mem, kind="derived")["total"] == 1
+    assert "derived" in api.findings(mem, kind="derived")["items"][0]["tags"]
+    t = [x for x in api.topics(mem) if x["id"] == tid][0]
+    assert t["derived_questions"] == ["Does wind change tidal range in bays?"] and t["insights"] == 1
+
+
+def test_reports(mem):
+    rid = mem.add_report("daily", "2026-10-10T00:00:00+00:00", "2026-10-11T00:00:00+00:00", "# Daily report - Sunday\n\n## What changed", {"cycles": 3})
+    assert api.reports(mem)[0]["title"] == "Daily report - Sunday"
+    assert api.report(mem, rid)["data"]["cycles"] == 3

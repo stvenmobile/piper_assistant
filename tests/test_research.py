@@ -121,7 +121,7 @@ class FakeLLM:
         self.thinking = []
         self.calls = 0
 
-    def json(self, system, user, schema, retries=1, think=None):
+    def json(self, system, user, schema, retries=1, think=None, **kw):
         self.calls += 1
         self.asked.append(schema)
         self.thinking.append((id(schema), think))
