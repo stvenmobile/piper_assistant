@@ -19,10 +19,15 @@ The research service. Ways to run:
         --rejudge 100                                       judge 100 findings stored before the judge
         --tidy                                              prune open questions to the cap, and mark the
                                                             old cross-topic flags reviewed (one-off)
+        --delete-topic "Name"                               remove a topic and everything that belongs to it
+
+Deletion requests from the dashboard are carried out here, between steps: the service holds the
+similarity indexes in RAM, so it is the one that deletes (and rebuilds them).
 
 Ctrl+C (or SIGTERM) stops between steps; an unfinished cycle is recorded as 'interrupted'.
 """
 import argparse
+import json
 import signal
 import sys
 import time
@@ -60,6 +65,29 @@ def nap(seconds: float):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def pending_deletions(mem) -> list[dict]:
+    """Deletion requests from the dashboard not yet carried out or cancelled (newest request per topic)."""
+    state = {}
+    for e in mem.db.execute("SELECT kind, data FROM events WHERE kind IN ('delete_requested', 'delete_cancelled',"
+                            " 'topic_deleted') ORDER BY id"):
+        d = json.loads(e["data"])
+        state[d.get("topic_id")] = (e["kind"], d)
+    return [d for tid, (k, d) in state.items() if k == "delete_requested"
+            and mem.db.execute("SELECT 1 FROM topics WHERE id = ?", (tid,)).fetchone()]
+
+
+def apply_deletions(r, mem) -> int:
+    """Carry out pending deletion requests. Returns how many topics were removed."""
+    n = 0
+    for req in pending_deletions(mem):
+        counts = mem.delete_topic(req["topic_id"])
+        if r.last_topic == req["topic_id"]:
+            r.last_topic = None
+        print(f"[Research] Deleted topic {req.get('name')!r}: {counts}")
+        n += 1
+    return n
 
 
 def _research_step(r, mem, cfg) -> str:
@@ -120,6 +148,7 @@ def run_rhythm(r, mem, cfg):
                    for x in mem.reports("daily", limit=1))
 
     while not stop:
+        apply_deletions(r, mem)
         now = datetime.now()
         today = now.date().isoformat()
         rt = rh.report_time(now)
@@ -197,6 +226,7 @@ def main():
     ap.add_argument("--overnight", action="store_true", help="write the summary of the last 12 h and stop")
     ap.add_argument("--rejudge", type=int, default=0, help="judge this many unjudged findings and stop")
     ap.add_argument("--tidy", action="store_true", help="prune open questions, mark old cross-topic flags reviewed")
+    ap.add_argument("--delete-topic", metavar="NAME", help="remove this topic and everything that belongs to it")
     ap.add_argument("--recheck-stances", action="store_true",
                     help="queue every supports / challenges verdict for the judge again (after a prompt change)")
     args = ap.parse_args()
@@ -217,6 +247,14 @@ def main():
     r = Researcher(mem, llm, wiki, cfg, should_stop=lambda: stop, sep=sep)
     schedule = Schedule(cfg["windows"], cfg["days"])
 
+    if args.delete_topic:
+        match = mem.db.execute("SELECT id FROM topics WHERE name = ?", (args.delete_topic.strip(),)).fetchone()
+        if not match:
+            print(f"[Research] No topic named {args.delete_topic!r}")
+            return
+        print(f"[Research] Deleted {args.delete_topic!r}: {mem.delete_topic(match[0])}")
+        return
+    apply_deletions(r, mem)
     if args.tidy:
         pruned = sum(r.prune_questions(t) for t in mem.topics())
         flags = [n["id"] for n in mem.notable() if n["kind"] == "cross_topic"]
@@ -271,6 +309,7 @@ def main():
         mem.log("research_ended", cycles=cycles, reason=why)
 
     while not stop:
+        apply_deletions(r, mem)
         if session_end is not None and time.monotonic() >= session_end:
             break
         if args.now or schedule.active(datetime.now()):

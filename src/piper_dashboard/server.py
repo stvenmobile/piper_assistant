@@ -60,6 +60,8 @@ class Dashboard:
                                  vague=one("vague") == "1")
             if route == "/api/concept":
                 return api.concept(mem, int(one("id", "0")))
+            if route == "/api/topic_impact":
+                return api.topic_impact(mem, int(one("id", "0")))
             if route == "/api/insights":
                 return api.insights(mem, status=one("status", "live"), topic=int(one("topic", "0") or 0) or None)
             if route == "/api/insight":
@@ -79,6 +81,9 @@ class Dashboard:
         m = re.fullmatch(r"/api/notable/(\d+)/reviewed", route)
         if m:
             return {"ok": api.mark_reviewed(self.path, int(m.group(1)))}
+        m = re.fullmatch(r"/api/topics/(\d+)/(delete|cancel_delete)", route)
+        if m:
+            return {"ok": api.request_delete(self.path, int(m.group(1)), cancel=m.group(2) == "cancel_delete")}
         return None
 
 

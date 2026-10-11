@@ -304,6 +304,9 @@ function evHTML(e) {
     case "report": return [`${esc(e.report_kind)} report written <a href="#" onclick="openReport(${e.report});return false">open</a>`, true];
     case "topic_decision": return [`${chip(e.action, "sep")} ${esc(e.topic)}: ${esc(e.reason)}`, true];
     case "phase": return [`Phase: ${esc(e.phase)}`, true];
+    case "delete_requested": return [`${chip("deletion requested", "warn")} ${esc(e.name)}`, true];
+    case "delete_cancelled": return [`Deletion cancelled: ${esc(e.name)}`];
+    case "topic_deleted": return [`${chip("topic deleted", "warn")} ${esc(e.name)}: ${e.findings} findings, ${e.questions} questions, ${e.episodes} cycles, ${e.insights} insights removed`, true];
     case "questions_pruned": return [`Pruned ${e.deleted} stale questions`];
     default: return [`${esc(e.kind)}`];
   }
@@ -347,10 +350,30 @@ async function loadTopics(tries = 3) {
       <details><summary>${t.open_questions_total} open questions${t.derived_questions.length ? ` (${t.derived_questions.length} derived)` : ""}</summary><ul>${t.open_questions.map(q =>
         `<li>${esc(q)}${t.derived_questions.includes(q) ? ` <span class="chip derived">derived</span>` : ""}</li>`).join("")}</ul></details>
       <div class="meta">${t.findings} findings (${src}) · ${t.episodes} cycles · ${t.insights} insights · last studied ${when(t.last_researched)}
-        · <a href="#" data-topic="${t.id}">see findings</a></div>
+        · <a href="#" data-topic="${t.id}">see findings</a>
+        · ${t.delete_pending ? `<span class="chip warn">deletion pending</span> <a href="#" data-undel="${t.id}">cancel</a>`
+                             : `<a href="#" data-del="${t.id}" style="color:var(--cha)">delete topic…</a>`}</div>
     </div>`;
   }).join("");
   document.querySelectorAll("a[data-topic]").forEach(a => a.onclick = ev => { ev.preventDefault(); $("#fTopic").value = a.dataset.topic; fOffset = 0; show("findings"); });
+  document.querySelectorAll("a[data-del]").forEach(a => a.onclick = async ev => {
+    ev.preventDefault();
+    const m = await get("/api/topic_impact?id=" + a.dataset.del);
+    const msg = `Delete the topic "${m.name}" and everything that belongs to it?\n\n`
+      + `  ${m.findings} findings, ${m.questions} questions, ${m.episodes} research cycles,\n`
+      + `  ${m.insights} insights, ${m.relations} graph links, ${m.remarks} remarks\n`
+      + (m.other_insights_touched ? `  ${m.other_insights_touched} insight(s) in other topics will lose part of their basis\n` : "")
+      + (m.subtopics ? `  ${m.subtopics} sub-topic(s) are kept and become top-level\n` : "")
+      + `\nPiper removes it at her next step (within a few minutes). This can't be undone.`;
+    if (!confirm(msg)) return;
+    const r = await fetch(`/api/topics/${a.dataset.del}/delete`, {method: "POST"});
+    if (r.ok) loadTopics();
+  });
+  document.querySelectorAll("a[data-undel]").forEach(a => a.onclick = async ev => {
+    ev.preventDefault();
+    const r = await fetch(`/api/topics/${a.dataset.undel}/cancel_delete`, {method: "POST"});
+    if (r.ok) loadTopics();
+  });
 }
 
 // ---- findings -------------------------------------------------------------------------------------

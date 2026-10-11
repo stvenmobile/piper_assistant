@@ -120,6 +120,7 @@ def open_questions(mem, topic_id: int) -> list[str]:
 
 def topics(mem) -> list[dict]:
     out = []
+    pending = pending_deletes(mem)
     for t in mem.topics():
         tid = t["id"]
         n = mem.db.execute("SELECT COUNT(*) FROM findings WHERE topic_id = ? AND kind != 'question' AND relevance != 'off_topic'",
@@ -141,6 +142,7 @@ def topics(mem) -> list[dict]:
             "balance": mem.stance_balance(tid), "remarks": remarks,
             "open_questions": oq[:30], "open_questions_total": len(oq),
             "derived_questions": [q for q in oq if q in derived], "stage": t.get("stage", "explore"),
+            "delete_pending": tid in pending,
             "insights": mem.db.execute("SELECT COUNT(*) FROM insights WHERE topic_id = ? AND status IN"
                                        " ('new', 'supported', 'weakened')", (tid,)).fetchone()[0],
         })
@@ -227,6 +229,37 @@ def notable(mem, kind: str = "", show: str = "open", limit: int = 100) -> list[d
                     "reviewed_at": r["reviewed_at"], "findings": fs,
                     "topics": [topics.get(t, "") for t in refs.get("topics", [])]})
     return out
+
+
+def topic_impact(mem, topic_id: int) -> dict | None:
+    t = mem.get_topic(topic_id)
+    return {"id": topic_id, "name": t["name"], **mem.topic_impact(topic_id)} if t else None
+
+
+def pending_deletes(mem) -> set[int]:
+    state = {}
+    for k, d in mem.db.execute("SELECT kind, data FROM events WHERE kind IN ('delete_requested', 'delete_cancelled',"
+                               " 'topic_deleted') ORDER BY id"):
+        state[json.loads(d).get("topic_id")] = k
+    return {tid for tid, k in state.items() if k == "delete_requested"}
+
+
+def request_delete(db_path, topic_id: int, cancel: bool = False) -> bool:
+    """Ask the research service to delete a topic (or cancel the request). The service does the
+    deleting between steps - it holds the similarity indexes in RAM."""
+    import sqlite3
+    con = sqlite3.connect(db_path, timeout=10)
+    try:
+        row = con.execute("SELECT name FROM topics WHERE id = ?", (topic_id,)).fetchone()
+        if not row:
+            return False
+        with con:
+            con.execute("INSERT INTO events (ts, kind, data) VALUES (?, ?, ?)",
+                        (_now().isoformat(timespec="seconds"), "delete_cancelled" if cancel else "delete_requested",
+                         json.dumps({"topic_id": topic_id, "name": row[0]})))
+        return True
+    finally:
+        con.close()
 
 
 def mark_reviewed(db_path, notable_id: int) -> bool:

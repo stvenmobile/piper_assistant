@@ -213,6 +213,68 @@ class MemoryStore:
             self.db.execute(f"UPDATE topics SET {sets}, updated_at = ? WHERE id = ?",
                             (*fields.values(), now(), topic_id))
 
+    def topic_impact(self, topic_id: int) -> dict:
+        """What delete_topic(topic_id) would remove (and what it would touch elsewhere)."""
+        one = lambda sql, *a: self.db.execute(sql, a).fetchone()[0]
+        fids = "(SELECT id FROM findings WHERE topic_id = ?)"
+        return {
+            "findings": one("SELECT COUNT(*) FROM findings WHERE topic_id = ? AND kind != 'question'", topic_id),
+            "questions": one("SELECT COUNT(*) FROM findings WHERE topic_id = ? AND kind = 'question'", topic_id),
+            "episodes": one("SELECT COUNT(*) FROM episodes WHERE topic_id = ?", topic_id),
+            "insights": one("SELECT COUNT(*) FROM insights WHERE topic_id = ?", topic_id),
+            "relations": one(f"SELECT COUNT(*) FROM relations WHERE finding_id IN {fids}", topic_id),
+            "remarks": one("SELECT COUNT(*) FROM remarks WHERE topic_id = ?", topic_id),
+            "other_insights_touched": one(f"SELECT COUNT(DISTINCT i.id) FROM insights i JOIN insight_findings x ON x.insight_id = i.id"
+                                          f" WHERE i.topic_id != ? AND x.finding_id IN {fids}", topic_id, topic_id),
+            "subtopics": one("SELECT COUNT(*) FROM topics WHERE parent_id = ?", topic_id),
+        }
+
+    def delete_topic(self, topic_id: int) -> dict:
+        """Remove a topic and everything that belongs to it, in one transaction: its findings and
+        questions (with their sources links, relations, tags, series), its episodes, remarks,
+        insights and flags; then concepts and pages nothing uses any more. Sub-topics are kept (they
+        become top-level); insights in OTHER topics keep their trail but lose the deleted basis.
+        The event log is history and stays. Returns the counts removed."""
+        t = self.get_topic(topic_id)
+        if t is None:
+            raise KeyError(topic_id)
+        counts = self.topic_impact(topic_id)
+        with self.lock, self._write():
+            db = self.db
+            db.execute("UPDATE topics SET parent_id = NULL WHERE parent_id = ?", (topic_id,))
+            db.execute("DELETE FROM insights WHERE topic_id = ?", (topic_id,))          # + its links and events
+            db.execute("UPDATE findings SET relates_to = NULL WHERE relates_to IN (SELECT id FROM findings WHERE topic_id = ?)",
+                       (topic_id,))
+            db.execute("DELETE FROM findings WHERE topic_id = ?", (topic_id,))          # + sources links, relations ...
+            db.execute("DELETE FROM episodes WHERE topic_id = ?", (topic_id,))
+            db.execute("UPDATE remarks SET superseded_by = NULL WHERE superseded_by IN (SELECT id FROM remarks WHERE topic_id = ?)",
+                       (topic_id,))
+            db.execute("DELETE FROM remarks WHERE topic_id = ?", (topic_id,))
+            flags = [r["id"] for r in db.execute("SELECT id, refs FROM notable")
+                     if topic_id in (json.loads(r["refs"]).get("topics") or [])]
+            for nid in flags:
+                db.execute("DELETE FROM notable WHERE id = ?", (nid,))
+            counts["flags"] = len(flags)
+            counts["concepts"] = db.execute(
+                "DELETE FROM concepts WHERE id NOT IN (SELECT subject_id FROM relations UNION SELECT object_id FROM relations)").rowcount
+            counts["pages"] = db.execute(
+                "DELETE FROM sources WHERE kind IN ('wikipedia', 'sep', 'web')"
+                " AND id NOT IN (SELECT source_id FROM finding_sources)").rowcount
+            db.execute("DELETE FROM topics WHERE id = ?", (topic_id,))
+            db.execute("INSERT INTO events (ts, kind, data) VALUES (?, 'topic_deleted', ?)",
+                       (now(), json.dumps({"topic_id": topic_id, "name": t["name"], **counts})))
+        self.reload_indexes()
+        return counts
+
+    def deleted_topic_names(self) -> set[str]:
+        return {json.loads(d).get("name", "").lower() for (d,) in
+                self.db.execute("SELECT data FROM events WHERE kind = 'topic_deleted'")}
+
+    def reload_indexes(self):
+        """Rebuild the in-RAM similarity indexes from the database (after deletions)."""
+        self.findings_index = VectorIndex()
+        self._load_indexes()
+
     # ---- episodes (the research diary) -------------------------------------------------------
     def start_episode(self, topic_id: int, angle: str = "", model: str = "", kind: str = "research") -> int:
         if kind not in EPISODE_KINDS:

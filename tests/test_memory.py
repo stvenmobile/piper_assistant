@@ -349,7 +349,7 @@ topics:
     origin: calibration
 """, encoding="utf-8")
     mem = MemoryStore(tmp_path / "m.db", FakeEmbedder())
-    assert load_seeds(mem, seeds) == {"topics": 3, "questions_added": 3}
+    assert load_seeds(mem, seeds) == {"topics": 3, "questions_added": 3, "skipped_deleted": []}
     c = mem.topic("Ocean tides")
     assert mem.get_topic(c)["thesis"] == "The Moon's gravity is the main cause of the tides."
     assert mem.get_topic(mem.topic("Spring tides"))["parent_id"] == c
@@ -357,7 +357,7 @@ topics:
     q = mem.findings(topic_id=c)
     assert {f["kind"] for f in q} == {"question"}
     assert mem.provenance(q[0]["id"])["sources"][0]["title"] == "research seeds"
-    assert load_seeds(mem, seeds) == {"topics": 3, "questions_added": 0}    # reload adds nothing
+    assert load_seeds(mem, seeds) == {"topics": 3, "questions_added": 0, "skipped_deleted": []}    # reload adds nothing
     assert len(mem.topics()) == 3
 
 

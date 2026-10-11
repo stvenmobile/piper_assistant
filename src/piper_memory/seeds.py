@@ -15,7 +15,8 @@ the format).
     python3 -m piper_memory.seeds [path]   (from src/) - load into the configured memory
 
 Re-loading is safe: topics are matched by name (their thesis/description/parent updated to
-the file), and an angle already present on a topic isn't added twice.
+the file), and an angle already present on a topic isn't added twice. A topic that was DELETED
+(dashboard or --delete-topic) is skipped, not brought back - take it out of the file.
 """
 import sys
 from pathlib import Path
@@ -29,8 +30,13 @@ def load_seeds(mem, path) -> dict:
     source = mem.source("user", "research seeds")
     added = 0
     topics = data.get("topics") or []
+    deleted = mem.deleted_topic_names()
+    skipped = []
     for t in topics:
         name = t["name"].strip()
+        if name.lower() in deleted and not mem.db.execute("SELECT 1 FROM topics WHERE name = ?", (name,)).fetchone():
+            skipped.append(name)
+            continue
         parent = mem.topic(t["parent"]) if t.get("parent") else None
         thesis = " ".join((t.get("thesis") or "").split())
         description = " ".join((t.get("description") or "").split())
@@ -45,8 +51,9 @@ def load_seeds(mem, path) -> dict:
                 existing.add(q)
                 added += 1
     if topics:
-        mem.log("seeds_loaded", topics=len(topics), questions_added=added, path=str(path))
-    return {"topics": len(topics), "questions_added": added}
+        mem.log("seeds_loaded", topics=len(topics) - len(skipped), questions_added=added, path=str(path),
+                skipped_deleted=skipped)
+    return {"topics": len(topics) - len(skipped), "questions_added": added, "skipped_deleted": skipped}
 
 
 if __name__ == "__main__":
