@@ -64,6 +64,15 @@ class CurLLM:
             return {"name": "Plant magnetoreception", "description": "Whether plants sense magnetic fields.", "thesis": ""}
         if schema is P.PROPOSE_SCHEMA:
             return {"propose": self.propose, "name": "Animal magnetoreception", "description": "d", "why": "insights point there"}
+        if schema is P.BRIEF_SCHEMA:
+            ids = [int(x.split("]")[0]) for x in user.split("[F")[1:]]
+            return {"bottom_line": "Mostly the stars, with a magnetic assist.",
+                    "established": [{"point": "Birds use radical pairs.", "findings": ids[:2] + [99999]}],
+                    "conjectures": [{"claim": "Quantum coherence matters", "for": "spin chemistry", "against": "warm, wet eyes",
+                                     "status": "contested"}],
+                    "edge_questions": ["Do night migrants calibrate on the sunset?"], "insights_note": "One held up."}
+        if schema is P.GAPS_SCHEMA:
+            return {"questions": ["How do pigeons navigate over the open sea?", "Does smell guide seabirds?"]}
         return self.inner.json(system, user, schema, retries, think)
 
     def usage(self):
@@ -129,7 +138,7 @@ def test_daily_report_shows_balance_changes_since_the_last_one(cur):
     assert "(was 3 / 0)" in mem.reports("daily")[0]["text"]
 
 
-def test_weekly_decisions_rest_retire_spawn_and_propose(cur):
+def test_weekly_decisions_rest_and_propose_but_never_create_topics(cur):
     mem, llm, r, birds, quantum, c = cur
     for _ in range(6):                                                 # birds: 6 stalled research cycles
         ep = mem.start_episode(birds, angle="?")
@@ -141,25 +150,26 @@ def test_weekly_decisions_rest_retire_spawn_and_propose(cur):
     r.llm.propose = True
     for i in range(3):
         mem.add_insight(f"Strong insight number {i} about compasses.", birds, [1, 2], confidence=0.7)
+    n_topics = len(mem.topics())
     decisions = c.topic_decisions()
     actions = {d["action"]: d for d in decisions}
     assert actions["rest"]["topic"] == "How migrating birds navigate" and mem.get_topic(birds)["status"] == "resting"
-    assert actions["spawn"]["topic"] == "Plant magnetoreception"
-    spawned = [t for t in mem.topics() if t["name"] == "Plant magnetoreception"][0]
-    assert spawned["parent_id"] == quantum and spawned["origin"] == "spawned"
-    assert len(c.open_derived(spawned["id"])) == 3 and not c.open_derived(quantum)     # the questions moved
+    assert actions["propose sub-topic"]["topic"] == "Plant magnetoreception"
     assert actions["propose"]["topic"] == "Animal magnetoreception"
+    assert len(mem.topics()) == n_topics                                # proposals only: you add topics
+    props = {x["refs"]["name"]: x for x in mem.notable() if x["kind"] == "proposal"}
+    assert props["Plant magnetoreception"]["refs"]["parent"] == quantum and len(props["Plant magnetoreception"]["refs"]["questions"]) == 3
     assert len([e for e in mem.events() if e["kind"] == "topic_decision"]) == len(decisions)
 
 
-def test_a_saturated_topic_with_nothing_open_is_retired(cur):
+def test_saturated_topics_are_no_longer_retired_automatically(cur):
     mem, llm, r, birds, quantum, c = cur
     for i in range(40):
         mem.add_finding(f"Quantum fact number {i} about coherence in proteins.", quantum, judged_by="m")
     mem.update_topic(quantum, saturation=0.9)
-    decisions = c.topic_decisions()
-    assert any(d["action"] == "retire" and d["topic"] == "Quantum biology" for d in decisions)
-    assert mem.get_topic(quantum)["status"] == "retired"
+    assert not any(d["action"] == "retire" for d in c.topic_decisions())
+    assert mem.get_topic(quantum)["status"] != "retired"
+
 
 
 def test_weekly_report(cur):

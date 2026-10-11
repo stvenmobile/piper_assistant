@@ -144,7 +144,13 @@ DEFAULTS: dict = {
         "synth_max_tokens": 6000,         # synthesis thinks longer than the judges (thinking + the answer)
         "synth_timeout_s": 600,
         "max_derived_open": 10,           # per topic: open questions DERIVED from insights (own cap)
-        "spawn_similarity": 0.75,         # weekly: 3+ derived questions this alike spawn a sub-topic
+        "spawn_similarity": 0.75,         # weekly: 3+ derived questions this alike -> a sub-topic PROPOSAL
+        # MASTERY (piper_research/mastery.py): the goal for every topic; you confirm it on the dashboard
+        "max_current_topics": 8,          # current-topic slots; mastering a topic frees one
+        "mastery_saturation": 0.8,        # checklist: recent research finds little new ...
+        "mastery_min_findings": 60,       # ... with at least this many findings (+ synthesis done, insight
+                                          #   questions tested, your guidance explored, a stated position)
+        "mastery_drive": 0.4,             # topics close to mastery get up to this much more of her time
         "cross_topic_checks": 3,          # new findings per cycle checked for links to other topics
         "cross_topic_min": 0.75,          # similarity for a cross-topic candidate (memory.cross_topic is 0.68)
         "cross_links_per_window": 20,     # cross-topic links flagged per research day (rhythm) or window

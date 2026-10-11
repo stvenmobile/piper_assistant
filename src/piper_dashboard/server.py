@@ -60,6 +60,10 @@ class Dashboard:
                                  vague=one("vague") == "1")
             if route == "/api/concept":
                 return api.concept(mem, int(one("id", "0")))
+            if route == "/api/slots":
+                return api.slots(mem)
+            if route == "/api/proposals":
+                return api.proposals(mem)
             if route == "/api/topic_impact":
                 return api.topic_impact(mem, int(one("id", "0")))
             if route == "/api/insights":
@@ -77,9 +81,31 @@ class Dashboard:
                                     limit=min(200, int(one("limit", "50"))), offset=int(one("offset", "0")))
         return None
 
-    def post(self, route: str):
+    def post(self, route: str, body: dict | None = None):
+        body = body or {}
         m = re.fullmatch(r"/api/notable/(\d+)/reviewed", route)
         if m:
+            return {"ok": api.mark_reviewed(self.path, int(m.group(1)))}
+        m = re.fullmatch(r"/api/topics/(\d+)/mastery", route)          # body: {"confirm": bool, "guidance": "..."}
+        if m:
+            tid = int(m.group(1))
+            if body.get("confirm"):
+                return {"ok": api.request(self.path, "mastery_confirm", topic_id=tid)}
+            return {"ok": api.request(self.path, "mastery_decline", topic_id=tid, guidance=str(body.get("guidance", ""))[:1000])}
+        m = re.fullmatch(r"/api/topics/(\d+)/reopen", route)
+        if m:
+            return {"ok": api.request(self.path, "topic_reopen", topic_id=int(m.group(1)))}
+        if route == "/api/topics/add":                                   # body: {"name", "thesis", "questions": [...]}
+            name = " ".join(str(body.get("name", "")).split())[:120]
+            if not name:
+                return {"ok": False}
+            qs = [str(q)[:300] for q in body.get("questions") or [] if str(q).strip()][:10]
+            return {"ok": api.request(self.path, "topic_add", name=name, thesis=str(body.get("thesis", ""))[:600],
+                                      questions=qs)}
+        m = re.fullmatch(r"/api/proposals/(\d+)/(accept|dismiss)", route)
+        if m:
+            if m.group(2) == "accept":
+                return {"ok": api.request(self.path, "proposal_accept", proposal=int(m.group(1)))}
             return {"ok": api.mark_reviewed(self.path, int(m.group(1)))}
         m = re.fullmatch(r"/api/topics/(\d+)/(delete|cancel_delete)", route)
         if m:
@@ -119,7 +145,9 @@ def make_handler(dash: Dashboard):
 
         def do_POST(self):
             try:
-                data = dash.post(urlparse(self.path).path)
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n) or b"{}") if n else {}
+                data = dash.post(urlparse(self.path).path, body if isinstance(body, dict) else {})
             except Exception as e:
                 traceback.print_exc()
                 return self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode(), "application/json")

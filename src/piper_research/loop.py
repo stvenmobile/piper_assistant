@@ -86,8 +86,9 @@ class Researcher(SynthesisMixin):
     def topic_scores(self) -> list[tuple[dict, float]]:
         now = datetime.now(timezone.utc)
         out = []
+        from piper_research.mastery import readiness
         for t in self.mem.topics():
-            if t["status"] == "retired":
+            if t["status"] in ("retired", "explored"):      # deeply explored topics aren't researched
                 continue
             eps = [e for e in self.mem.episodes(t["id"], limit=8) if e.get("kind", "research") == "research"][:3]
             n = self.mem.db.execute("SELECT COUNT(*) FROM findings WHERE topic_id = ? AND kind != 'question'",
@@ -103,6 +104,9 @@ class Researcher(SynthesisMixin):
             score = (0.35 * staleness + 0.30 * thin + 0.20 * tension + 0.15 * has_open) * (1 - 0.7 * saturation)
             if t["status"] == "resting":
                 score *= 0.3
+            rd = readiness(self.mem, t, self.cfg)["score"]          # the completion drive: topics close
+            if rd >= 0.5:                                           #   to mastery get a little more time
+                score *= 1 + self.cfg.get("mastery_drive", 0.4) * rd
             self.mem.update_topic(t["id"], novelty=round(thin, 3), progress=round(min(1.0, n / 60), 3),
                                   saturation=round(saturation, 3))
             out.append((t, max(score, 0.01)))
@@ -133,7 +137,14 @@ class Researcher(SynthesisMixin):
         return [r[0] for r in rows if r[0].rstrip().endswith("?") and norm(r[0]) not in asked]
 
     def ranked_open_questions(self, topic: dict, k: int = 10) -> list[str]:
-        """The open questions closest to what the topic is about (its name, description, thesis)."""
+        """The open questions closest to what the topic is about (its name, description, thesis) -
+        after the questions from your "not yet" guidance, which always come first."""
+        from piper_research.mastery import open_tagged
+        gaps = [q["text"] for q in open_tagged(self.mem, topic["id"], "mastery_gap")]
+        rest = [q for q in self._ranked_open_questions(topic, k) if q not in gaps]
+        return (gaps + rest)[:k]
+
+    def _ranked_open_questions(self, topic: dict, k: int = 10) -> list[str]:
         open_q = self.open_questions(topic["id"])
         if len(open_q) <= k:
             return open_q
@@ -509,7 +520,7 @@ class Researcher(SynthesisMixin):
                    if topic["thesis"] else "Thesis: (none - open exploration)\n")
                 + "\nFindings:\n" + P.numbered(lines))
         r = self.llm.json(P.REFLECT, user, P.REFLECT_SCHEMA, think=self.judge_think)
-        for kind in ("position", "learned", "unsure"):
+        for kind in ("position", "learned", "unsure", "mastery_gap"):
             if tidy_remark(r.get(kind, "")):
                 self.mem.set_remark(kind, tidy_remark(r[kind]), topic_id=tid)
         src = self.mem.source("llm", self.llm.model)

@@ -3,7 +3,10 @@ Piper's memory - the SQLite schema (the source of truth; the Obsidian vault and 
 are views of it).
 
     topics      the hierarchy + agenda: what Piper studies, with her curiosity scores, and an
-                optional THESIS - a position to examine (map who argues what, not to confirm)
+                optional THESIS - a position to examine (map who argues what, not to confirm).
+                MASTERY is the goal: when a topic meets the mastery checklist Piper requests it
+                (mastery = candidate); confirmed, it moves to status 'explored' (Deeply Explored)
+                with a mastery brief (a 'mastery' report), freeing one of the current slots
     episodes    the research diary: one row per research cycle on a topic
     sources     where things were learned (wikipedia | sep | web | llm | user), de-duplicated by `ref`
     findings    single claims (fact | pattern | quantity | question), each with its topic, the
@@ -31,8 +34,8 @@ are views of it).
 Times are ISO-8601 UTC strings. JSON columns hold flexible extras.
 """
 
-SCHEMA_VERSION = 4              # v2: topics.thesis, findings.stance; v3: relevance, stance_reason, judged_by;
-                                # v4: insights, reports, episodes.kind, topics.stage
+SCHEMA_VERSION = 5              # v2: topics.thesis, findings.stance; v3: relevance, stance_reason, judged_by;
+                                # v4: insights, reports, episodes.kind, topics.stage; v5: mastery
 
 # upgrades from each older version (applied in order by MemoryStore)
 MIGRATIONS = {
@@ -43,6 +46,8 @@ MIGRATIONS = {
         "ALTER TABLE findings ADD COLUMN judged_by TEXT"],
     4: ["ALTER TABLE episodes ADD COLUMN kind TEXT NOT NULL DEFAULT 'research'",
         "ALTER TABLE topics ADD COLUMN stage TEXT NOT NULL DEFAULT 'explore'"],
+    5: ["ALTER TABLE topics ADD COLUMN mastery TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE topics ADD COLUMN mastered_at TEXT"],
 }
 
 # relation types - a small fixed vocabulary, so the graph stays queryable
@@ -69,13 +74,14 @@ STANCES = ("supports", "challenges", "neutral")          # toward the topic's th
 RELEVANCE = ("core", "background", "off_topic")          # to the topic
 CERTAINTY = {"established": 0.9, "reported": 0.6, "speculative": 0.3}   # -> findings.confidence
 SOURCE_KINDS = ("wikipedia", "sep", "web", "llm", "user")
-TOPIC_STATUS = ("queued", "active", "resting", "retired")
-TOPIC_STAGES = ("explore", "synthesize", "test", "mature", "retired")   # a topic's life (set at checkpoints)
+TOPIC_STATUS = ("queued", "active", "resting", "retired", "explored")   # explored = DEEPLY EXPLORED (mastery confirmed)
+CURRENT_STATUS = ("queued", "active", "resting")                          # the topics that hold a current slot
+TOPIC_STAGES = ("explore", "synthesize", "test", "mature", "retired", "explored")   # a topic's life (set at checkpoints)
 EPISODE_KINDS = ("research", "synthesis")
 INSIGHT_KINDS = ("link", "tension", "hypothesis", "analogy", "pattern")
 INSIGHT_STATUS = ("new", "supported", "weakened", "dropped", "rejected")  # rejected: failed its grounding check
 INSIGHT_CONFIDENCE = {"speculative": 0.3, "plausible": 0.5, "strong": 0.7}
-REPORT_KINDS = ("daily", "weekly")
+REPORT_KINDS = ("daily", "weekly", "mastery")   # mastery: the brief written when a topic is deeply explored
 
 DDL = """
 CREATE TABLE IF NOT EXISTS topics (
@@ -86,7 +92,9 @@ CREATE TABLE IF NOT EXISTS topics (
     thesis      TEXT NOT NULL DEFAULT '',          -- a position to examine ('' = open exploration)
     origin      TEXT NOT NULL DEFAULT 'seed',      -- seed | user | spawned | surprise | calibration
     status      TEXT NOT NULL DEFAULT 'queued',    -- queued | active | resting | retired
-    stage       TEXT NOT NULL DEFAULT 'explore',   -- explore | synthesize | test | mature | retired
+    stage       TEXT NOT NULL DEFAULT 'explore',   -- explore | synthesize | test | mature | retired | explored
+    mastery     TEXT NOT NULL DEFAULT '',          -- '' | candidate (Piper requests mastery; you confirm)
+    mastered_at TEXT,                              -- when mastery was confirmed (status -> explored)
     novelty     REAL,                              -- curiosity scores, 0..1 (set by the loop)
     progress    REAL,
     saturation  REAL,

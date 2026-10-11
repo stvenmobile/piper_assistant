@@ -43,6 +43,7 @@ from piper_memory import EmbedError, open_memory      # noqa: E402
 from piper_memory.seeds import load_seeds             # noqa: E402
 from piper_research import (Interrupted, LLMError, OllamaChat, Researcher, Schedule, Wikipedia,  # noqa: E402
                             WikiError)
+from piper_research.mastery import apply_requests       # noqa: E402
 from piper_research.rhythm import Curator, Rhythm       # noqa: E402
 from piper_research.sep import SEP                      # noqa: E402
 
@@ -149,6 +150,7 @@ def run_rhythm(r, mem, cfg):
 
     while not stop:
         apply_deletions(r, mem)
+        apply_requests(r)
         now = datetime.now()
         today = now.date().isoformat()
         rt = rh.report_time(now)
@@ -310,6 +312,7 @@ def main():
 
     while not stop:
         apply_deletions(r, mem)
+        apply_requests(r)
         if session_end is not None and time.monotonic() >= session_end:
             break
         if args.now or schedule.active(datetime.now()):

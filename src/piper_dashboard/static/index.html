@@ -91,6 +91,19 @@ tr.sum td { border-top: none; padding-top: 0; color: var(--muted); }
 #gside { max-height: 66vh; overflow-y: auto; }
 .rel { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
 .rel .p { color: var(--accent); }
+/* topics: current / deeply explored, mastery */
+.subtabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.subtabs button { background: var(--panel); border: 1px solid var(--line); color: var(--muted); padding: 6px 14px; border-radius: 999px; cursor: pointer; font: inherit; }
+.subtabs button.active { color: var(--text); border-color: var(--accent); }
+.mastery { margin-top: 10px; background: var(--panel2); border-radius: 8px; padding: 8px 10px; }
+.mbar { display: inline-block; width: 120px; height: 8px; border-radius: 4px; background: var(--line); vertical-align: middle; overflow: hidden; }
+.mbar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--sup)); }
+.crit { font-size: 13px; margin: 2px 0; } .crit.ok { color: var(--sup); } .crit.no { color: var(--muted); }
+.ask { margin-top: 10px; border: 1px solid var(--sup); border-radius: 8px; padding: 10px; background: color-mix(in srgb, var(--sup) 10%, transparent); }
+.ask textarea, .addform textarea, .addform input { width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; font: inherit; margin: 6px 0; }
+.addform label { font-size: 12px; color: var(--muted); }
+.prop { padding: 10px 0; border-top: 1px solid var(--line); } .prop:first-child { border-top: none; }
+.explored h3::before { content: "★ "; color: var(--warn); }
 /* insights + reports */
 .ins { padding: 12px 0; border-top: 1px solid var(--line); cursor: pointer; }
 .ins:first-child { border-top: none; }
@@ -172,7 +185,12 @@ pre.think { white-space: pre-wrap; background: var(--panel2); border-radius: 8px
     <div class="panel" id="iDetail" style="display:none"></div>
   </section>
 
-  <section class="view" id="topics"><div class="grid" id="topicGrid"></div></section>
+  <section class="view" id="topics">
+    <div class="subtabs"><button data-sub="current" class="active" id="subCur">Current</button>
+      <button data-sub="explored" id="subExp">Deeply Explored</button></div>
+    <div id="slotPanel"></div>
+    <div class="grid" id="topicGrid"></div>
+  </section>
 
   <section class="view" id="findings">
     <div class="panel">
@@ -305,6 +323,15 @@ function evHTML(e) {
     case "topic_decision": return [`${chip(e.action, "sep")} ${esc(e.topic)}: ${esc(e.reason)}`, true];
     case "phase": return [`Phase: ${esc(e.phase)}`, true];
     case "delete_requested": return [`${chip("deletion requested", "warn")} ${esc(e.name)}`, true];
+    case "mastery_requested": return [`${chip("asks for mastery", "supports")} ${esc(e.name)} - every item on its checklist is met`, true];
+    case "mastery_confirm": return [`You confirmed mastery of topic #${e.topic_id}`, true];
+    case "mastery_decline": return [`You said not yet: ${esc(e.guidance)}`, true];
+    case "mastery_not_yet": return [`Not yet for ${esc(e.name)} - new priority questions: ${(e.questions || []).map(esc).join(" · ")}`, true];
+    case "topic_mastered": return [`${chip("mastered", "supports")} <b>${esc(e.name)}</b> - now deeply explored <a href="#" onclick="openReport(${e.report});return false">read the brief</a>`, true];
+    case "topic_added": return [`${chip("new topic", "sep")} ${esc(e.name)}`, true];
+    case "topic_reopened": return [`Reopened: ${esc(e.name)}`, true];
+    case "topic_proposed": return [`${chip("proposal", "sep")} ${esc(e.name)} - ${esc(e.why)}`, true];
+    case "topic_add": case "topic_reopen": case "proposal_accept": case "request_done": return null;
     case "delete_cancelled": return [`Deletion cancelled: ${esc(e.name)}`];
     case "topic_deleted": return [`${chip("topic deleted", "warn")} ${esc(e.name)}: ${e.findings} findings, ${e.questions} questions, ${e.episodes} cycles, ${e.insights} insights removed`, true];
     case "questions_pruned": return [`Pruned ${e.deleted} stale questions`];
@@ -326,7 +353,10 @@ async function loadEvents() {
 }
 
 // ---- topics -------------------------------------------------------------------------------------
-let topicList = [];
+let topicList = [], topicSub = "current", slotInfo = null;
+document.querySelectorAll(".subtabs button").forEach(b => b.onclick = () => { topicSub = b.dataset.sub;
+  document.querySelectorAll(".subtabs button").forEach(x => x.classList.toggle("active", x === b)); renderTopics(); });
+const post = (u, body) => fetch(u, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
 async function loadTopics(tries = 3) {
   if (!topicList.length) $("#topicGrid").innerHTML = `<div class="muted">Loading topics…</div>`;
   try { topicList = await get("/api/topics"); }
@@ -337,16 +367,76 @@ async function loadTopics(tries = 3) {
   const sel = $("#fTopic"), keep = sel.value;
   sel.innerHTML = `<option value="">All topics</option>` + topicList.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
   sel.value = keep;
-  $("#topicGrid").innerHTML = topicList.map(t => {
+  try { slotInfo = await get("/api/slots"); slotInfo.proposals = await get("/api/proposals"); } catch (e) { slotInfo = null; }
+  renderTopics();
+}
+function masteryHTML(t) {
+  if (!t.readiness) return "";
+  const rd = t.readiness, pct = Math.round(rd.score * 100), gap = t.remarks.mastery_gap;
+  let ask = "";
+  if (t.mastery_answer_pending) ask = `<div class="ask">Your answer is with Piper - she'll act on it at her next step.</div>`;
+  else if (t.mastery === "candidate") ask = `<div class="ask"><b>Piper asks for mastery of this topic.</b> Every item on its checklist is met.
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-master="${t.id}">Confirm mastery</button>
+      <button class="btn" data-notyet="${t.id}">Not yet…</button></div>
+      <div id="ny${t.id}" style="display:none"><textarea rows="3" placeholder="What else needs exploring before this is mastered?"></textarea>
+      <button class="btn" data-guide="${t.id}">Send guidance</button></div></div>`;
+  return `<div class="mastery"><div><b>Mastery</b> <span class="mbar"><span style="width:${pct}%"></span></span> <span class="muted">${pct}%</span></div>
+    <details><summary>checklist</summary>${rd.criteria.map(c => `<div class="crit ${c.met ? "ok" : "no"}">${c.met ? "✓" : "○"} ${esc(c.label)} <span class="muted">- ${esc(c.detail)}</span></div>`).join("")}</details>
+    ${gap ? `<div class="remark"><div class="k">Between me and mastery</div>${esc(gap.text)}</div>` : ""}
+    ${t.guidance ? `<div class="meta">Your last guidance: ${esc(t.guidance)}</div>` : ""}${ask}</div>`;
+}
+function slotPanelHTML() {
+  if (!slotInfo) return "";
+  const s = slotInfo, props = s.proposals || [];
+  return `<div class="panel"><h2>Current-topic slots</h2>
+    <div>${s.current} of ${s.max} slots in use · <b>${s.free} free</b> · ${s.explored} deeply explored
+      ${s.adding.length ? ` · <span class="muted">adding: ${s.adding.map(esc).join(", ")}</span>` : ""}</div>
+    ${s.free > 0 ? `<details><summary>Add a topic</summary><div class="addform">
+      <label>Name</label><input id="addName" placeholder="e.g. How bees navigate">
+      <label>Thesis to examine (optional)</label><input id="addThesis" placeholder="a position, or leave empty for open exploration">
+      <label>Starter questions (one per line, optional)</label><textarea id="addQs" rows="3"></textarea>
+      <button class="btn" id="addBtn">Add topic</button></div></details>` : `<div class="meta">Every slot is in use - master a topic to free one.</div>`}
+    ${props.length ? `<details ${s.free > 0 ? "open" : ""}><summary>Piper's proposals (${props.length})</summary>${props.map(p => `<div class="prop">
+      <b>${esc(p.name)}</b>${p.parent ? ` <span class="chip">sub-topic of ${esc(p.parent)}</span>` : ""} <span class="muted">${when(p.created_at)}</span>
+      <div>${esc(p.description)}</div><div class="meta">${esc(p.why)}${p.questions ? ` · brings ${p.questions} questions` : ""}</div>
+      <div style="margin-top:6px">${p.accept_pending ? `<span class="muted">adding…</span>` :
+        `<button class="btn" data-accept="${p.id}" ${s.free > 0 ? "" : "disabled title='no free slot'"}>Add</button> <button class="btn" data-dismiss="${p.id}">Dismiss</button>`}</div></div>`).join("")}</details>` : ""}
+  </div>`;
+}
+function renderTopics() {
+  const cur = topicList.filter(t => ["queued", "active", "resting"].includes(t.status));
+  const exp = topicList.filter(t => t.status === "explored");
+  $("#subCur").textContent = `Current (${cur.length}${slotInfo ? "/" + slotInfo.max : ""})`;
+  $("#subExp").textContent = `Deeply Explored (${exp.length})`;
+  $("#slotPanel").innerHTML = topicSub === "current" ? slotPanelHTML() : "";
+  const shown = topicSub === "current" ? cur : exp;
+  $("#topicGrid").innerHTML = shown.map(t => {
+    if (t.status === "explored") {
+      const b = t.balance, s = b.supports.count, c = b.challenges.count, n = b.neutral.count, tot = Math.max(1, s + c + n);
+      return `<div class="panel topic explored"><h3>${esc(t.name)}</h3>
+        ${t.thesis ? `<div class="thesis">${esc(t.thesis)}</div><div class="bar"><span style="width:${100 * s / tot}%;background:var(--sup)"></span><span style="width:${100 * n / tot}%;background:var(--neu)"></span><span style="width:${100 * c / tot}%;background:var(--cha)"></span></div>` : ""}
+        <div class="meta">Mastered ${t.mastered_at ? new Date(t.mastered_at).toLocaleDateString() : ""} · ${t.findings} findings · ${t.insights} insights</div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">${t.brief ? `<button class="btn" onclick="openReport(${t.brief})">Read the mastery brief</button>` : ""}
+          <button class="btn" data-reopen="${t.id}" ${slotInfo && slotInfo.free > 0 ? "" : "disabled title='no free slot'"}>Reopen</button>
+          <a href="#" data-topic="${t.id}">see findings</a></div>
+        <div class="meta">${t.delete_pending ? `<span class="chip warn">deletion pending</span> <a href="#" data-undel="${t.id}">cancel</a>`
+                             : `<a href="#" data-del="${t.id}" style="color:var(--cha)">delete topic…</a>`}</div></div>`;
+    }
+    return currentCard(t);
+  }).join("") || `<div class="muted">${topicSub === "current" ? "No current topics - add one above." : "No topic has been mastered yet. Mastery is the goal."}</div>`;
+  wireTopicButtons();
+}
+function currentCard(t) {
     const b = t.balance, s = b.supports.count, c = b.challenges.count, n = b.neutral.count, tot = Math.max(1, s + c + n);
     const r = t.remarks, rem = (k, l) => r[k] ? `<div class="remark"><div class="k">${l}</div>${esc(r[k].text)}</div>` : "";
     const src = Object.entries(t.by_source).map(([k, v]) => `${SRC[k] || k} ${v}`).join(" · ");
     return `<div class="panel topic">
-      <h3>${esc(t.name)} <span class="chip">${esc(t.stage || "explore")}</span>${t.status !== "active" ? ` <span class="chip warn">${esc(t.status)}</span>` : ""}</h3>
+      <h3>${esc(t.name)} <span class="chip">${esc(t.stage || "explore")}</span>${t.mastery === "candidate" ? ` <span class="chip supports">asks for mastery</span>` : ""}${t.status !== "active" ? ` <span class="chip warn">${esc(t.status)}</span>` : ""}</h3>
       ${t.thesis ? `<div class="thesis">${esc(t.thesis)}</div>` : `<div class="thesis">Open exploration (no thesis)</div>`}
       ${t.thesis ? `<div class="bar"><span style="width:${100 * s / tot}%;background:var(--sup)"></span><span style="width:${100 * n / tot}%;background:var(--neu)"></span><span style="width:${100 * c / tot}%;background:var(--cha)"></span></div>
       <div class="legend"><span style="color:var(--sup)">${s} support</span><span>${n} neutral</span><span style="color:var(--cha)">${c} challenge</span></div>` : ""}
       ${rem("position", "Where it stands")}${rem("learned", "Most interesting")}${rem("unsure", "Still unclear")}
+      ${masteryHTML(t)}
       <details><summary>${t.open_questions_total} open questions${t.derived_questions.length ? ` (${t.derived_questions.length} derived)` : ""}</summary><ul>${t.open_questions.map(q =>
         `<li>${esc(q)}${t.derived_questions.includes(q) ? ` <span class="chip derived">derived</span>` : ""}</li>`).join("")}</ul></details>
       <div class="meta">${t.findings} findings (${src}) · ${t.episodes} cycles · ${t.insights} insights · last studied ${when(t.last_researched)}
@@ -354,7 +444,26 @@ async function loadTopics(tries = 3) {
         · ${t.delete_pending ? `<span class="chip warn">deletion pending</span> <a href="#" data-undel="${t.id}">cancel</a>`
                              : `<a href="#" data-del="${t.id}" style="color:var(--cha)">delete topic…</a>`}</div>
     </div>`;
-  }).join("");
+}
+function wireTopicButtons() {
+  const reload = () => loadTopics();
+  document.querySelectorAll("button[data-master]").forEach(b => b.onclick = async () => {
+    if (!confirm("Confirm mastery? Piper writes the mastery brief and the topic moves to Deeply Explored, freeing its slot.")) return;
+    b.disabled = true; await post(`/api/topics/${b.dataset.master}/mastery`, {confirm: true}); reload(); });
+  document.querySelectorAll("button[data-notyet]").forEach(b => b.onclick = () => { $("#ny" + b.dataset.notyet).style.display = ""; });
+  document.querySelectorAll("button[data-guide]").forEach(b => b.onclick = async () => {
+    const text = b.parentElement.querySelector("textarea").value.trim();
+    if (!text) { b.parentElement.querySelector("textarea").focus(); return; }
+    b.disabled = true; await post(`/api/topics/${b.dataset.guide}/mastery`, {confirm: false, guidance: text}); reload(); });
+  document.querySelectorAll("button[data-reopen]").forEach(b => b.onclick = async () => { b.disabled = true; await post(`/api/topics/${b.dataset.reopen}/reopen`); reload(); });
+  document.querySelectorAll("button[data-accept]").forEach(b => b.onclick = async () => { b.disabled = true; await post(`/api/proposals/${b.dataset.accept}/accept`); reload(); });
+  document.querySelectorAll("button[data-dismiss]").forEach(b => b.onclick = async () => { b.disabled = true; await post(`/api/proposals/${b.dataset.dismiss}/dismiss`); reload(); });
+  const add = $("#addBtn");
+  if (add) add.onclick = async () => {
+    const name = $("#addName").value.trim(); if (!name) { $("#addName").focus(); return; }
+    add.disabled = true;
+    await post("/api/topics/add", {name, thesis: $("#addThesis").value.trim(), questions: $("#addQs").value.split("\n").map(x => x.trim()).filter(Boolean)});
+    reload(); };
   document.querySelectorAll("a[data-topic]").forEach(a => a.onclick = ev => { ev.preventDefault(); $("#fTopic").value = a.dataset.topic; fOffset = 0; show("findings"); });
   document.querySelectorAll("a[data-del]").forEach(a => a.onclick = async ev => {
     ev.preventDefault();
@@ -620,8 +729,8 @@ function md(text) {
 }
 async function loadReports() {
   const rs = await get("/api/reports");
-  $("#repList").innerHTML = rs.map(r => `<div class="rep" onclick="openReport(${r.id})"><span class="chip ${r.kind === "weekly" ? "sep" : ""}">${esc(r.kind)}</span>
-    ${esc(r.title.replace(/^(Daily|Weekly) report - /, ""))}<div class="meta">${when(r.created_at)}</div></div>`).join("")
+  $("#repList").innerHTML = rs.map(r => `<div class="rep" onclick="openReport(${r.id})"><span class="chip ${r.kind === "weekly" ? "sep" : r.kind === "mastery" ? "supports" : ""}">${esc(r.kind)}</span>
+    ${esc(r.title.replace(/^(Daily|Weekly) report - |^Mastery brief - /, ""))}<div class="meta">${when(r.created_at)}</div></div>`).join("")
     || `<div class="muted">The first report comes at 07:00 after a night of research.</div>`;
   if (rs.length && $("#repBody").dataset.id == null) openReport(rs[0].id);
 }

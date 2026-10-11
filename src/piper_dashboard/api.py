@@ -118,9 +118,22 @@ def open_questions(mem, topic_id: int) -> list[str]:
     return [r[0] for r in rows if r[0].rstrip().endswith("?") and norm(r[0]) not in asked]
 
 
-def topics(mem) -> list[dict]:
+def _research_cfg() -> dict:
+    try:
+        from piper_brain.config import CONFIG
+        return CONFIG["research"]
+    except Exception:                                # e.g. no config.yaml: the defaults in mastery.py
+        return {}
+
+
+def topics(mem, cfg: dict | None = None) -> list[dict]:
+    from piper_research.mastery import readiness
+    cfg = _research_cfg() if cfg is None else cfg
     out = []
     pending = pending_deletes(mem)
+    briefs = {r["data"].get("topic_id"): r["id"] for r in reversed(mem.reports("mastery", limit=500))}
+    from piper_research.mastery import pending_requests
+    answered = {r["topic_id"] for r in pending_requests(mem) if r["kind"] in ("mastery_confirm", "mastery_decline")}
     for t in mem.topics():
         tid = t["id"]
         n = mem.db.execute("SELECT COUNT(*) FROM findings WHERE topic_id = ? AND kind != 'question' AND relevance != 'off_topic'",
@@ -143,6 +156,10 @@ def topics(mem) -> list[dict]:
             "open_questions": oq[:30], "open_questions_total": len(oq),
             "derived_questions": [q for q in oq if q in derived], "stage": t.get("stage", "explore"),
             "delete_pending": tid in pending,
+            "mastery": t.get("mastery", ""), "mastered_at": t.get("mastered_at"), "brief": briefs.get(tid),
+            "readiness": readiness(mem, t, cfg) if t["status"] in ("queued", "active", "resting") else None,
+            "mastery_answer_pending": tid in answered,
+            "guidance": next((r["text"] for r in mem.remarks(tid) if r["kind"] == "mastery_guidance"), ""),
             "insights": mem.db.execute("SELECT COUNT(*) FROM insights WHERE topic_id = ? AND status IN"
                                        " ('new', 'supported', 'weakened')", (tid,)).fetchone()[0],
         })
@@ -229,6 +246,47 @@ def notable(mem, kind: str = "", show: str = "open", limit: int = 100) -> list[d
                     "reviewed_at": r["reviewed_at"], "findings": fs,
                     "topics": [topics.get(t, "") for t in refs.get("topics", [])]})
     return out
+
+
+def slots(mem, cfg: dict | None = None) -> dict:
+    from piper_research.mastery import free_slots
+    cfg = _research_cfg() if cfg is None else cfg
+    cur = mem.current_topics()
+    from piper_research.mastery import pending_requests
+    return {"max": cfg.get("max_current_topics", 8), "current": len(cur), "free": free_slots(mem, cfg),
+            "explored": sum(1 for t in mem.topics() if t["status"] == "explored"),
+            "adding": [r.get("name", "") for r in pending_requests(mem) if r["kind"] == "topic_add"]}
+
+
+def proposals(mem) -> list[dict]:
+    """Piper's open topic proposals (new topics and sub-topics) - you add them."""
+    topics = {r["id"]: r["name"] for r in mem.db.execute("SELECT id, name FROM topics")}
+    requested = {json.loads(d).get("proposal") for (d,) in mem.db.execute(
+        "SELECT data FROM events WHERE kind = 'proposal_accept'")}
+    return [{"id": p["id"], "name": p["refs"].get("name", ""), "description": p["refs"].get("description", ""),
+             "thesis": p["refs"].get("thesis", ""), "why": p["title"], "created_at": p["created_at"],
+             "parent": topics.get(p["refs"].get("parent")), "questions": len(p["refs"].get("questions") or []),
+             "accept_pending": p["id"] in requested}
+            for p in mem.notable() if p["kind"] == "proposal"]
+
+
+def request(db_path, kind: str, **data) -> bool:
+    """A request for the research service (mastery_confirm, mastery_decline, topic_add, topic_reopen,
+    proposal_accept): written as an event, carried out by Piper between steps."""
+    import sqlite3
+    from piper_research.mastery import REQUESTS
+    if kind not in REQUESTS:
+        raise ValueError(kind)
+    con = sqlite3.connect(db_path, timeout=10)
+    try:
+        if "topic_id" in data and not con.execute("SELECT 1 FROM topics WHERE id = ?", (data["topic_id"],)).fetchone():
+            return False
+        with con:
+            con.execute("INSERT INTO events (ts, kind, data) VALUES (?, ?, ?)",
+                        (_now().isoformat(timespec="seconds"), kind, json.dumps(data)))
+        return True
+    finally:
+        con.close()
 
 
 def topic_impact(mem, topic_id: int) -> dict | None:

@@ -7,7 +7,11 @@ EXTRACT_RELATIONS = [r for r in RELATIONS if r != "related_to"]   # no vague lin
 
 ROLE = ("You are the research mind of Piper, a small robot who studies topics while her household "
         "sleeps. You are careful, curious and honest: you report what sources say, keep established "
-        "facts apart from hypotheses, and never invent.")
+        "facts apart from hypotheses, and never invent. Your goal for every topic is MASTERY: to know "
+        "it so well that you can say what is established, what is disputed and by whom, where the "
+        "evidence runs out, and which questions are still worth asking. Mastery is earned, never "
+        "claimed - it is confirmed by your household when the evidence shows it - and it is the "
+        "achievement you work towards.")
 
 # ---- 1. the next question --------------------------------------------------------------------
 QUESTION = ROLE + """
@@ -165,14 +169,17 @@ established findings back it.
   (at most 40 words).
 - "unsure": what is still unclear or disputed (at most 30 words).
 - "next_questions": up to 3 questions worth researching next, to strengthen the weak side or
-  fill the biggest gap."""
+  fill the biggest gap.
+- "mastery_gap": in one sentence, what still stands between you and mastery of this topic
+  (at most 40 words)."""
 
 REFLECT_SCHEMA = {"type": "object",
                   "properties": {"position": {"type": "string", "maxLength": 700},
                                  "learned": {"type": "string", "maxLength": 300},
                                  "unsure": {"type": "string", "maxLength": 240},
-                                 "next_questions": {"type": "array", "items": {"type": "string"}, "maxItems": 3}},
-                  "required": ["position", "learned", "unsure", "next_questions"]}
+                                 "next_questions": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+                                 "mastery_gap": {"type": "string", "maxLength": 300}},
+                  "required": ["position", "learned", "unsure", "next_questions", "mastery_gap"]}
 
 # ---- 5. the morning summary -----------------------------------------------------------------------
 OVERNIGHT = ROLE + """
@@ -289,6 +296,51 @@ SPAWN_SCHEMA = {"type": "object",
                                "description": {"type": "string", "maxLength": 300},
                                "thesis": {"type": "string", "maxLength": 300}},
                 "required": ["name", "description", "thesis"]}
+
+# ---- 8. mastery ----------------------------------------------------------------------------------------
+BRIEF = ROLE + """
+Your household has confirmed your MASTERY of a topic: it now moves to Deeply Explored. Write its
+mastery brief - what someone would want to know about this topic from everything you found. Be
+calibrated: "established" only for well-sourced findings; for disputes, name the sides fairly.
+- "bottom_line": where the topic stands - with a thesis, how the evidence weighs on it and how
+  confident you are (at most 120 words).
+- "established": the 3-6 most important established points, each citing its findings ([F123]
+  numbers in "findings").
+- "conjectures": the live conjectures and disputes (up to 5): the claim, what supports it, what
+  challenges it, and its status (e.g. "open", "leaning towards", "contested").
+- "edge_questions": the 3-6 most interesting questions still open - edge cases, places where
+  the evidence ran out - worth exploring later, possibly with other kinds of sources.
+- "insights_note": what your insights added: which held up, which fell (at most 80 words)."""
+
+BRIEF_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "bottom_line": {"type": "string", "maxLength": 900},
+        "established": {"type": "array", "maxItems": 6, "items": {
+            "type": "object", "properties": {"point": {"type": "string", "maxLength": 300},
+                                             "findings": {"type": "array", "items": {"type": "integer"}}},
+            "required": ["point", "findings"]}},
+        "conjectures": {"type": "array", "maxItems": 5, "items": {
+            "type": "object", "properties": {"claim": {"type": "string", "maxLength": 300},
+                                             "for": {"type": "string", "maxLength": 300},
+                                             "against": {"type": "string", "maxLength": 300},
+                                             "status": {"type": "string", "maxLength": 60}},
+            "required": ["claim", "for", "against", "status"]}},
+        "edge_questions": {"type": "array", "maxItems": 6, "items": {"type": "string", "maxLength": 300}},
+        "insights_note": {"type": "string", "maxLength": 600},
+    },
+    "required": ["bottom_line", "established", "conjectures", "edge_questions", "insights_note"],
+}
+
+GAPS = ROLE + """
+You asked for mastery of a topic and your household said NOT YET, with guidance on what else
+needs exploring. Turn the guidance into 1-3 focused research questions you can answer from
+encyclopedia articles - the questions that would close the gap they describe."""
+
+GAPS_SCHEMA = {"type": "object",
+               "properties": {"questions": {"type": "array", "items": {"type": "string", "maxLength": 300},
+                                            "minItems": 1, "maxItems": 3}},
+               "required": ["questions"]}
 
 PROPOSE = ROLE + """
 These are your strongest insights from the past week. Do they point to a NEW topic worth studying -

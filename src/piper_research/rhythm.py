@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 from piper_research import prompts as P
 from piper_research.llm import LLMError
+from piper_research.mastery import Mastery, free_slots
 from piper_research.schedule import DAYS, parse_window
 from piper_research.verify import norm, tidy_remark
 
@@ -101,8 +102,8 @@ class Curator:
             if norm(x["text"]) not in asked]
 
     def stage_of(self, t: dict) -> str:
-        if t["status"] == "retired":
-            return "retired"
+        if t["status"] in ("retired", "explored"):
+            return t["status"]
         if t["status"] == "resting":
             return "mature"
         if (t["saturation"] or 0) < self.cfg.get("synth_saturation", 0.5):
@@ -120,7 +121,8 @@ class Curator:
 
     def checkpoint(self, cycles: int) -> dict:
         stages = self.update_stages()
-        self.mem.log("checkpoint", cycles=cycles, stages=stages, unjudged=self.r.unjudged())
+        requested = Mastery(self.r).check()                 # any topic ready for mastery: ask for it
+        self.mem.log("checkpoint", cycles=cycles, stages=stages, unjudged=self.r.unjudged(), mastery_requested=requested)
         return stages
 
     # ---- consolidation ----------------------------------------------------------------------------
@@ -138,7 +140,7 @@ class Curator:
         out = {"reflected": 0, "synthesized": 0, "insights": 0, "pruned": 0, "reviewed": 0, "decisions": [],
                "rejudged": 0}
         since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
-        topics = [t for t in mem.topics() if t["status"] != "retired"]
+        topics = mem.current_topics()                        # deeply explored topics are done
 
         def time_left():
             return not should_stop() and time.monotonic() < deadline
@@ -180,6 +182,7 @@ class Curator:
         if weekly and time_left():                           # 5. the weekly topic decisions
             out["decisions"] = self.topic_decisions()
         self.update_stages()
+        out["mastery_requested"] = Mastery(r).check()
         while time_left() and r.unjudged():                  # 6. leftover time: the re-judging backlog
             try:
                 out["rejudged"] += r.rejudge(limit=10)["judged"]
@@ -210,9 +213,8 @@ class Curator:
     def topic_decisions(self) -> list[dict]:
         r, mem, decisions = self.r, self.mem, []
         now = datetime.now(timezone.utc)
-        for t in mem.topics():
-            if t["status"] == "retired":
-                continue
+        m = Mastery(r)
+        for t in mem.current_topics():
             eps = [e for e in mem.episodes(t["id"], limit=20) if e.get("kind", "research") == "research"][:10]
             n = mem.db.execute("SELECT COUNT(*) FROM findings WHERE topic_id = ? AND kind != 'question'"
                                " AND relevance != 'off_topic'", (t["id"],)).fetchone()[0]
@@ -222,11 +224,6 @@ class Curator:
                 if (now - datetime.fromisoformat(t["updated_at"])).days >= 7:
                     mem.update_topic(t["id"], status="active")
                     self._decide(decisions, "wake", t["name"], "rested for a week - worth another look")
-                continue
-            if (t["saturation"] or 0) >= 0.8 and not open_q and n >= 40:
-                mem.update_topic(t["id"], status="retired")
-                self._decide(decisions, "retire", t["name"], f"saturated ({t['saturation']:.0%}) with {n} findings"
-                                                             " and no open questions left")
                 continue
             if len(eps) >= 6 and stalled / len(eps) >= 0.7:
                 mem.update_topic(t["id"], status="resting")
@@ -241,19 +238,15 @@ class Curator:
                 except LLMError:
                     break
                 name = " ".join(s.get("name", "").split())
-                if not name or mem.db.execute("SELECT 1 FROM topics WHERE name = ?", (name,)).fetchone():
-                    continue
-                new = mem.topic(name, parent=t["id"], description=s.get("description", ""), origin="spawned",
-                                thesis=s.get("thesis", "") or "")
-                for q in group:
-                    mem.move_finding(q["id"], new)
-                self._decide(decisions, "spawn", name, f"{len(group)} derived questions in {t['name']} kept pointing"
-                                                       " the same way", parent=t["name"], questions=len(group))
-                break                                                          # one spawn per topic a week
+                why = f"{len(group)} derived questions in {t['name']} kept pointing the same way"
+                if m.propose(name, s.get("description", ""), why, thesis=s.get("thesis", "") or "", parent=t["id"],
+                             questions=[q["id"] for q in group]):
+                    self._decide(decisions, "propose sub-topic", name, why, parent=t["name"], questions=len(group))
+                    break                                                      # one proposal per topic a week
         week_ago = (now - timedelta(days=7)).isoformat(timespec="seconds")
         strong = [i for i in mem.insights(limit=200) if i["created_at"] >= week_ago
                   and i["status"] in ("new", "supported") and i["confidence"] >= 0.5][:8]
-        if len(strong) >= 3:                                                   # propose a new topic
+        if len(strong) >= 3 and free_slots(mem, self.cfg) > 0:                # propose a new topic
             names = [t["name"] for t in mem.topics()]
             try:
                 p = r.llm.json(P.PROPOSE, "Current topics:\n" + P.numbered(names) + "\n\nStrongest insights this week:\n"
@@ -261,8 +254,8 @@ class Curator:
             except LLMError:
                 p = {}
             name = " ".join(p.get("name", "").split())
-            if p.get("propose") and name and name.lower() not in {n.lower() for n in names}:
-                mem.topic(name, description=p.get("description", ""), origin="surprise")
+            if p.get("propose") and m.propose(name, p.get("description", ""), p.get("why", ""),
+                                              insights=[i["id"] for i in strong]):
                 self._decide(decisions, "propose", name, p.get("why", ""), insights=[i["id"] for i in strong])
         return decisions
 
@@ -345,6 +338,15 @@ class Curator:
         for name, qs in nxt.items():
             for q in qs:
                 lines.append(f"- _{name}_: {q} `derived`")
+        mastery = []
+        for t in mem.topics():
+            if t.get("mastery") == "candidate":
+                mastery.append(f"- **{t['name']}** - I'm asking for mastery: every item on its checklist is met."
+                               " Please confirm it, or tell me what else needs exploring.")
+        for (d,) in mem.db.execute("SELECT data FROM events WHERE kind = 'topic_mastered' AND ts >= ? AND ts < ?", (since, until)):
+            mastery.append(f"- **Mastered:** {json.loads(d)['name']} - now deeply explored, with its mastery brief.")
+        if mastery:
+            lines += ["", "## Mastery"] + mastery
         if decisions:
             lines += ["", "## Topic decisions"] + [f"- **{d['action']}** {d['topic']} - {d['reason']}" for d in decisions]
         lines += ["", "## Housekeeping",

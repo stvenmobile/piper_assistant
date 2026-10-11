@@ -219,6 +219,20 @@ Two maintenance commands:
 - `--tidy` prunes the open questions to `research.max_open_questions` per topic and marks the old
   cross-topic flags as reviewed.
 
+**Mastery** (`src/piper_research/mastery.py`) is the goal for every topic - in Piper's research
+role and her DNA (`system_dna.md`). Each current topic has a mastery checklist: recent research
+finds little new, a solid evidence base (`research.mastery_min_findings`), synthesis done, its
+insight questions tested, your guidance explored, and a stated position. When every item is met,
+Piper **asks for mastery**; you confirm it on the dashboard, and she writes the topic's **mastery
+brief** (bottom line, the established core with its findings, live conjectures and disputes,
+edge-case questions worth exploring later, what her insights added) and moves it to **Deeply
+Explored**. That frees one of the `research.max_current_topics` (8) slots. If you say **not yet**,
+you write what else needs exploring; she turns it into priority questions, researched first, and
+the checklist waits for them. Topics close to mastery get a little more of her time.
+Piper proposes new topics (and sub-topics, when derived questions keep pointing the same way);
+you add them - or your own - into free slots from the dashboard. A deeply explored topic can be
+reopened, and its findings stay available to synthesis.
+
 The rhythm can also be started by hand: `python3 src/piper_research/service.py --session`;
 `--session 2` instead researches for two hours, writes a summary and stops. For plain timed research
 instead, set `research.windows` in `config.yaml` (several allowed; a window may cross midnight) or
@@ -234,11 +248,14 @@ library only) on port 8080: open `http://<jetson-ip>:8080/` from any device on t
 | Now | what Piper is researching, the rhythm's phase, the live activity feed |
 | Reports | the daily and weekly reports; insight numbers in them open the insight's trail |
 | Insights | what synthesis concluded. Click one for its **trail**: why those findings were chosen (each back to its source quote and page revision), the numbered reasoning steps and their checks, the grounding check, the questions it raised and whether research took them up, what happened since, and the model's raw thinking (collapsed) |
-| Topics | each topic's stage (explore / synthesize / test / mature / retired), thesis, the supports / neutral / challenges balance, her position and remarks, open questions (derived ones marked) |
+| Topics | **Current** (the slots, Add topic, Piper's proposals) and **Deeply Explored** (mastery briefs, Reopen). Each current topic: stage, thesis, evidence balance, her position and remarks, open questions (derived ones marked), and its **mastery checklist** - with Confirm / Not yet when Piper asks for mastery |
 | Findings | every finding, filterable by topic, stance, relevance and source (or just the derived questions), with its quote, the judge's reason and a link to the exact page revision |
 | Sessions | one row per research session: cycles, new findings, off-topic, rejected, the session summary |
-| Notable | contradictions and links between topics, with a "mark reviewed" button (its only write) |
+| Notable | contradictions and links between topics, with a "mark reviewed" button |
 | Graph | the concept graph: click a concept for its links and the findings behind them |
+
+The dashboard's writes (mark reviewed, delete or add a topic, confirm mastery / not yet, reopen,
+accept a proposal) are requests: Piper's research service carries them out between steps.
 
 Keep it on the home network: the topics are personal. It can also run on another machine against
 a copied database: `python3 src/piper_dashboard/server.py --db path/to/piper_memory.db`.

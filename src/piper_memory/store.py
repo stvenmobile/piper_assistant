@@ -172,6 +172,10 @@ class MemoryStore:
         return [{"id": r["id"], "ts": r["ts"], "kind": r["kind"], **json.loads(r["data"])} for r in rows]
 
     # ---- topics -----------------------------------------------------------------------------
+    def current_topics(self) -> list[dict]:
+        """The topics holding a current slot (not deeply explored, not retired)."""
+        return [t for t in self.topics() if t["status"] in ("queued", "active", "resting")]
+
     def topic(self, name: str, parent: int | None = None, description: str = "", origin: str = "seed",
               thesis: str = "") -> int:
         """The id of topic `name` (case-insensitive), creating it if needed. thesis: a position
@@ -198,7 +202,8 @@ class MemoryStore:
 
     def update_topic(self, topic_id: int, **fields):
         """Set status / stage / description / thesis / novelty / progress / saturation / parent_id."""
-        allowed = {"status", "stage", "description", "thesis", "novelty", "progress", "saturation", "parent_id"}
+        allowed = {"status", "stage", "description", "thesis", "novelty", "progress", "saturation", "parent_id",
+                   "mastery", "mastered_at"}
         bad = set(fields) - allowed
         if bad:
             raise ValueError(f"can't update topic fields {bad}")
