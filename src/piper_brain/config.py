@@ -126,7 +126,7 @@ DEFAULTS: dict = {
         "sep_pages": 1,                   # + Stanford Encyclopedia of Philosophy entries (0 = off); its
                                           #   passages compete with Wikipedia's for the question
         "openalex_papers": 2,             # + research papers (abstracts) from OpenAlex per question (0 = off)
-        "openalex_api_key": "",           #   free key from openalex.org: without one the daily allowance
+        "openalex_api_key": "",           #   free key from openalex.org (set OPENALEX_API_KEY in .env): without one the daily allowance
                                           #   is ~100 searches, then Piper skips OpenAlex until it resets
         "arxiv_papers": 1,                # + arXiv preprints (abstracts) per question (0 = off)
         "passages": 8,                    # best passages (by similarity to the question) given to the model
@@ -179,6 +179,7 @@ ENV_OVERRIDES = {
     "PIPER_VOICE_MODEL": ("audio", "voice_model"),
     "PIPER_RESEARCH_WINDOWS": ("research", "windows"),
     "PIPER_RESEARCH_MODEL": ("research", "model"),
+    "OPENALEX_API_KEY": ("research", "openalex_api_key"),   # keep the key in .env (git-ignored), not config.yaml
 }
 
 

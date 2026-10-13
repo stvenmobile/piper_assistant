@@ -188,7 +188,7 @@ Each research cycle, Piper researches the topics in her memory (`piper_memory`):
 - reads Wikipedia, a Stanford Encyclopedia of Philosophy entry, and research papers - published
   journal papers from **OpenAlex** (the well-cited first) and **arXiv** preprints (labelled not
   peer-reviewed) - and keeps the passages closest to the question. OpenAlex is metered: without a
-  free key (`research.openalex_api_key`) it allows about 100 searches a day, and Piper skips it
+  free key (`OPENALEX_API_KEY` in `.env`) it allows about 100 searches a day, and Piper skips it
   until its allowance resets; arXiv is skipped for an hour if it says "too many requests";
 - has the research model (`research.model`, default `qwen3:30b-a3b` on the PC's Ollama) extract findings.
 
