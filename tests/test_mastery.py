@@ -46,6 +46,29 @@ def test_piper_requests_mastery_once_the_checklist_is_complete(m):
     assert [e for e in mem.events() if e["kind"] == "mastery_requested"][0]["criteria"]["evidence"].startswith("3 findings")
 
 
+def test_a_request_is_withdrawn_if_the_checklist_slips_before_you_answer(m):
+    mem, r, birds, quantum, mm = m
+    _ready(mem, r, birds)
+    assert mm.check() == ["How migrating birds navigate"]
+    mem.update_topic(birds, saturation=0.3)                          # new research finds new things again
+    assert mm.check() == []
+    assert mem.get_topic(birds)["mastery"] == ""
+    w = [e for e in mem.events() if e["kind"] == "mastery_withdrawn"]
+    assert len(w) == 1 and set(w[0]["unmet"]) == {"saturated"}
+    mem.update_topic(birds, saturation=0.9)                          # ... and asks again once it's met
+    assert mm.check() == ["How migrating birds navigate"]
+
+
+def test_an_answered_request_is_not_withdrawn(m):
+    mem, r, birds, quantum, mm = m
+    _ready(mem, r, birds)
+    mm.check()
+    mem.log("mastery_confirm", topic_id=birds)                       # you confirmed on the dashboard
+    mem.update_topic(birds, saturation=0.3)
+    mm.check()
+    assert mem.get_topic(birds)["mastery"] == "candidate"
+
+
 def test_confirmed_mastery_writes_the_brief_and_frees_the_slot(m):
     mem, r, birds, quantum, mm = m
     _ready(mem, r, birds)

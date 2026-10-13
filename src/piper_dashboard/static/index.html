@@ -324,6 +324,7 @@ function evHTML(e) {
     case "phase": return [`Phase: ${esc(e.phase)}`, true];
     case "delete_requested": return [`${chip("deletion requested", "warn")} ${esc(e.name)}`, true];
     case "mastery_requested": return [`${chip("asks for mastery", "supports")} ${esc(e.name)} - every item on its checklist is met`, true];
+    case "mastery_withdrawn": return [`${chip("mastery request withdrawn", "warn")} ${esc(e.name)} - the checklist slipped: ${Object.values(e.unmet || {}).map(esc).join(" · ")}`, true];
     case "mastery_confirm": return [`You confirmed mastery of topic #${e.topic_id}`, true];
     case "mastery_decline": return [`You said not yet: ${esc(e.guidance)}`, true];
     case "mastery_not_yet": return [`Not yet for ${esc(e.name)} - new priority questions: ${(e.questions || []).map(esc).join(" · ")}`, true];
@@ -375,6 +376,9 @@ function masteryHTML(t) {
   const rd = t.readiness, pct = Math.round(rd.score * 100), gap = t.remarks.mastery_gap;
   let ask = "";
   if (t.mastery_answer_pending) ask = `<div class="ask">Your answer is with Piper - she'll act on it at her next step.</div>`;
+  else if (t.mastery === "candidate" && !rd.ready) ask = `<div class="ask"><b>Piper asked for mastery, but the checklist has slipped since</b>
+      (${rd.criteria.filter(c => c.met).length} of ${rd.criteria.length} met - see below). She'll withdraw the request at her next
+      checkpoint and ask again once every item is met, so there's nothing to confirm yet.</div>`;
   else if (t.mastery === "candidate") ask = `<div class="ask"><b>Piper asks for mastery of this topic.</b> Every item on its checklist is met.
       <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-master="${t.id}">Confirm mastery</button>
       <button class="btn" data-notyet="${t.id}">Not yet…</button></div>
@@ -431,7 +435,8 @@ function currentCard(t) {
     const r = t.remarks, rem = (k, l) => r[k] ? `<div class="remark"><div class="k">${l}</div>${esc(r[k].text)}</div>` : "";
     const src = Object.entries(t.by_source).map(([k, v]) => `${SRC[k] || k} ${v}`).join(" · ");
     return `<div class="panel topic">
-      <h3>${esc(t.name)} <span class="chip">${esc(t.stage || "explore")}</span>${t.mastery === "candidate" ? ` <span class="chip supports">asks for mastery</span>` : ""}${t.status !== "active" ? ` <span class="chip warn">${esc(t.status)}</span>` : ""}</h3>
+      <h3>${esc(t.name)} <span class="chip">${esc(t.stage || "explore")}</span>${t.mastery === "candidate" ? (t.readiness && !t.readiness.ready ? ` <span class="chip warn">mastery request lapsed</span>`
+                                                                     : ` <span class="chip supports">asks for mastery</span>`) : ""}${t.status !== "active" ? ` <span class="chip warn">${esc(t.status)}</span>` : ""}</h3>
       ${t.thesis ? `<div class="thesis">${esc(t.thesis)}</div>` : `<div class="thesis">Open exploration (no thesis)</div>`}
       ${t.thesis ? `<div class="bar"><span style="width:${100 * s / tot}%;background:var(--sup)"></span><span style="width:${100 * n / tot}%;background:var(--neu)"></span><span style="width:${100 * c / tot}%;background:var(--cha)"></span></div>
       <div class="legend"><span style="color:var(--sup)">${s} support</span><span>${n} neutral</span><span style="color:var(--cha)">${c} challenge</span></div>` : ""}

@@ -343,6 +343,11 @@ class Curator:
             if t.get("mastery") == "candidate":
                 mastery.append(f"- **{t['name']}** - I'm asking for mastery: every item on its checklist is met."
                                " Please confirm it, or tell me what else needs exploring.")
+        for (d,) in mem.db.execute("SELECT data FROM events WHERE kind = 'mastery_withdrawn' AND ts >= ? AND ts < ?", (since, until)):
+            d = json.loads(d)
+            unmet = "; ".join(f"{v}" for v in d.get("unmet", {}).values())
+            mastery.append(f"- **{d['name']}** - I withdrew my mastery request: the checklist slipped ({unmet})."
+                           " I'll ask again once every item is met.")
         for (d,) in mem.db.execute("SELECT data FROM events WHERE kind = 'topic_mastered' AND ts >= ? AND ts < ?", (since, until)):
             mastery.append(f"- **Mastered:** {json.loads(d)['name']} - now deeply explored, with its mastery brief.")
         if mastery:

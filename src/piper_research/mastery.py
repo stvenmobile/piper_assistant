@@ -9,6 +9,9 @@ MASTERY - the goal for every topic. Piper works towards it; her household confir
                   guidance explored no open questions from your "not yet" guidance
                   a position        her reflection has said where the topic stands
     REQUEST     when every item is met, she REQUESTS mastery (topics.mastery = 'candidate')
+    WITHDRAW    if the checklist slips before you answer (new research finds new things again, a
+                derived question opens), she withdraws the request at her next checkpoint and asks
+                again once every item is met - you're never asked to confirm a stale request
     CONFIRM     you confirm on the dashboard -> she writes the MASTERY BRIEF (bottom line, the
                 established core with its findings, live conjectures, edge-case questions, what her
                 insights added) and the topic moves to Deeply Explored (status 'explored'), freeing
@@ -75,10 +78,23 @@ class Mastery:
         self.r, self.mem, self.cfg = r, r.mem, r.cfg
 
     def check(self) -> list[str]:
-        """Request mastery for every current topic whose checklist is complete. Returns their names."""
+        """Request mastery for every current topic whose checklist is complete, and withdraw an
+        unanswered request whose checklist has slipped since. Returns the names newly requested."""
         out = []
+        answered = {q["topic_id"] for q in pending_requests(self.mem) if q["kind"] in ("mastery_confirm", "mastery_decline")}
         for t in self.mem.current_topics():
-            if t["status"] != "active" or t.get("mastery"):
+            if t["status"] != "active":
+                continue
+            if t.get("mastery") == "candidate":
+                if t["id"] in answered:                        # your answer is on its way: leave it
+                    continue
+                rd = readiness(self.mem, t, self.cfg)
+                if not rd["ready"]:
+                    self.mem.update_topic(t["id"], mastery="")
+                    self.mem.log("mastery_withdrawn", topic_id=t["id"], name=t["name"],
+                                 unmet={c["key"]: c["detail"] for c in rd["criteria"] if not c["met"]})
+                continue
+            if t.get("mastery"):
                 continue
             rd = readiness(self.mem, t, self.cfg)
             if rd["ready"]:
