@@ -45,6 +45,7 @@ from piper_research import (Interrupted, LLMError, OllamaChat, Researcher, Sched
                             WikiError)
 from piper_research.mastery import apply_requests       # noqa: E402
 from piper_research.rhythm import Curator, Rhythm       # noqa: E402
+from piper_research.papers import ArXiv, OpenAlex       # noqa: E402
 from piper_research.sep import SEP                      # noqa: E402
 
 stop = False
@@ -246,7 +247,12 @@ def main():
                      timeout=cfg["timeout_s"], max_tokens=cfg["max_tokens"])
     wiki = Wikipedia(ROOT_DIR / "data" / "research" / "wiki")
     sep = SEP(ROOT_DIR / "data" / "research" / "sep") if cfg["sep_pages"] > 0 else None
-    r = Researcher(mem, llm, wiki, cfg, should_stop=lambda: stop, sep=sep)
+    papers = []
+    if cfg.get("openalex_papers", 0) > 0:
+        papers.append(OpenAlex(ROOT_DIR / "data" / "research" / "openalex", api_key=cfg.get("openalex_api_key", "")))
+    if cfg.get("arxiv_papers", 0) > 0:
+        papers.append(ArXiv(ROOT_DIR / "data" / "research" / "arxiv"))
+    r = Researcher(mem, llm, wiki, cfg, should_stop=lambda: stop, sep=sep, papers=papers)
     schedule = Schedule(cfg["windows"], cfg["days"])
 
     if args.delete_topic:

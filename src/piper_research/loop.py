@@ -56,11 +56,12 @@ def _hours_since(iso: str | None, now: datetime) -> float:
 
 class Researcher(SynthesisMixin):
     def __init__(self, mem, llm: OllamaChat, wiki: Wikipedia, cfg: dict, log=print, rng=None,
-                 should_stop=lambda: False, sep=None):
+                 should_stop=lambda: False, sep=None, papers=None):
         self.mem = mem
         self.llm = llm
         self.wiki = wiki
         self.sep = sep                              # Stanford Encyclopedia of Philosophy (or None)
+        self.papers = list(papers or [])            # research papers: papers.OpenAlex, papers.ArXiv
         self.cfg = cfg
         self.say = log
         self.rng = rng or random.Random()
@@ -213,6 +214,7 @@ class Researcher(SynthesisMixin):
             if page and all(p["title"] != page["title"] for p in pages):
                 pages.append(page)
         pages += self.read_sep(queries)
+        pages += self.read_papers(queries)
         chunks = [c for p in pages for c in passages(p, self.cfg["passage_chars"])]
         return pages, self.rank(question, chunks)[: self.cfg["passages"]]
 
@@ -237,6 +239,27 @@ class Researcher(SynthesisMixin):
         except Exception as e:                      # network, parsing: carry on with Wikipedia alone
             self.mem.log("sep_failed", error=str(e)[:200])
             return []
+
+    def read_papers(self, queries: list[str]) -> list[dict]:
+        """Up to <kind>_papers papers from each paper source, for the question's first search query
+        (they're metered or rate-limited, so one search each). Their abstracts compete with the
+        other passages for the question. A source that is limited is left alone until it resets."""
+        out = []
+        for src in self.papers:
+            n = self.cfg.get(f"{src.kind}_papers", 1)
+            if n <= 0 or not queries or not src.available():
+                continue
+            try:
+                for pid in src.search(queries[0], limit=n)[:n]:
+                    page = src.page(pid)
+                    if page and all(p["url"] != page["url"] for p in out):
+                        out.append(page)
+            except Exception as e:                  # network, limits: carry on without it
+                self.mem.log("source_failed", source=src.kind, error=str(e)[:200])
+                if not src.available():
+                    self.mem.log("source_paused", source=src.kind, reason=src.pause_reason,
+                                 until=time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(src.paused_until)))
+        return out
 
     def rank(self, question: str, chunks: list[dict]) -> list[dict]:
         if not chunks:
@@ -380,7 +403,8 @@ class Researcher(SynthesisMixin):
     # ---- EXTRACT + VERIFY ---------------------------------------------------------------------
     def extract(self, topic, ep, question, pages, chosen, stats) -> tuple[str, list[int]]:
         tid = topic["id"]
-        label = {"sep": "Stanford Encyclopedia of Philosophy: ", "wikipedia": "Wikipedia: "}
+        label = {"sep": "Stanford Encyclopedia of Philosophy: ", "wikipedia": "Wikipedia: ",
+                 "openalex": "Research paper (abstract): ", "arxiv": "arXiv preprint, not peer-reviewed (abstract): "}
         text = "\n\n".join(f"[{i}] ({label.get(c.get('kind'), '')}{c['title']} - {c['section'] or 'introduction'})\n{c['text']}"
                            for i, c in enumerate(chosen, 1))
         user = (f"Topic: {topic['name']}\n"

@@ -251,7 +251,7 @@ const time = iso => new Date(iso).toLocaleTimeString([], {hour: "2-digit", minut
 const when = iso => { if (!iso) return "never"; const s = (Date.now() - new Date(iso)) / 1000;
   return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 172800 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
 const hm = s => s == null ? "" : `${Math.floor(s / 3600)} h ${String(Math.floor(s % 3600 / 60)).padStart(2, "0")} min`;
-const SRC = {wikipedia: "Wikipedia", sep: "Stanford Encyclopedia"};
+const SRC = {wikipedia: "Wikipedia", sep: "Stanford Encyclopedia", openalex: "Research papers", arxiv: "arXiv preprints"};
 const tidy = t => String(t ?? "").split(/(?:\\n|\n)\s*"?[a-z_]+"?\s*:/)[0].replace(/\\n/g, " ").replace(/\s*\(\s*\d+\s*words?\s*\)\s*$/i, "").trim();
 
 // ---- tabs ------------------------------------------------------------------------------------
@@ -311,7 +311,8 @@ function evHTML(e) {
     case "cycle_done": return [`Cycle done: ${esc(e.outcome)}, ${e.new} new`];
     case "overnight": return [`Session summary: ${esc(tidy(e.summary))}`, true];
     case "reflected_raw": return null;
-    case "research_error": case "judge_failed": case "sep_failed": return [`${chip("problem", "warn")} ${esc(e.error)}`];
+    case "source_paused": return [`${chip("source paused", "warn")} ${esc(SRC[e.source] || e.source)}: ${esc(e.reason)} - back after ${esc(new Date(e.until + "Z").toLocaleString())}`];
+    case "research_error": case "judge_failed": case "sep_failed": case "source_failed": return [`${chip("problem", "warn")} ${esc(e.error)}`];
     case "concept_judged": return null;
     case "synthesized": return [`Synthesis (${esc(e.strategy)}): ${e.insights} insight(s)${e.rejected ? `, ${e.rejected} rejected` : ""}`, true];
     case "insight": return [`${chip(e.status === "rejected" ? "insight rejected" : "insight", e.status === "rejected" ? "warn" : "derived")}

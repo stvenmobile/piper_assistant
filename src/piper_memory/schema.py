@@ -73,7 +73,7 @@ FINDING_STATUS = ("new", "confirms", "refines", "contradicts")
 STANCES = ("supports", "challenges", "neutral")          # toward the topic's thesis
 RELEVANCE = ("core", "background", "off_topic")          # to the topic
 CERTAINTY = {"established": 0.9, "reported": 0.6, "speculative": 0.3}   # -> findings.confidence
-SOURCE_KINDS = ("wikipedia", "sep", "web", "llm", "user")
+SOURCE_KINDS = ("wikipedia", "sep", "openalex", "arxiv", "web", "llm", "user")
 TOPIC_STATUS = ("queued", "active", "resting", "retired", "explored")   # explored = DEEPLY EXPLORED (mastery confirmed)
 CURRENT_STATUS = ("queued", "active", "resting")                          # the topics that hold a current slot
 TOPIC_STAGES = ("explore", "synthesize", "test", "mature", "retired", "explored")   # a topic's life (set at checkpoints)
