@@ -151,7 +151,9 @@ DEFAULTS: dict = {
         "spawn_similarity": 0.75,         # weekly: 3+ derived questions this alike -> a sub-topic PROPOSAL
         # MASTERY (piper_research/mastery.py): the goal for every topic; you confirm it on the dashboard
         "max_current_topics": 8,          # current-topic slots; mastering a topic frees one
-        "mastery_saturation": 0.8,        # checklist: recent research finds little new ...
+        "mastery_saturation": 0.7,        # checklist: this share of the last mastery_window research cycles
+        "mastery_window": 10,             #   found nothing new ... (a request stands until it drops below
+        "mastery_keep_saturation": 0.5,   #   mastery_keep_saturation - so it doesn't flicker)
         "mastery_min_findings": 60,       # ... with at least this many findings (+ synthesis done, insight
                                           #   questions tested, your guidance explored, a stated position)
         "mastery_drive": 0.4,             # topics close to mastery get up to this much more of her time

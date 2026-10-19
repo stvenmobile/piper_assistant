@@ -4,12 +4,21 @@ from piper_research.mastery import Mastery, apply_requests, free_slots, open_tag
 from test_rhythm import CurLLM, cur  # noqa: F401  (fixture)
 from test_synthesis import SCFG, insight, two_topics  # noqa: F401  (fixture)
 
-MCFG = {**SCFG, "mastery_saturation": 0.8, "mastery_min_findings": 3, "max_current_topics": 3, "mastery_drive": 0.4}
+MCFG = {**SCFG, "mastery_saturation": 0.7, "mastery_keep_saturation": 0.5, "mastery_window": 10,
+        "mastery_min_findings": 3, "max_current_topics": 3, "mastery_drive": 0.4}
+
+
+def _cycles(mem, tid, n, new=0):
+    """n research cycles on a topic: new findings each (0 = it found nothing new)."""
+    for _ in range(n):
+        ep = mem.start_episode(tid, angle="a question")
+        mem.end_episode(ep, "progress" if new else "stalled", new=new)
 
 
 def _ready(mem, r, tid):
     """Make a topic meet every item on the mastery checklist."""
     mem.update_topic(tid, saturation=0.9, status="active")
+    _cycles(mem, tid, 10)                                             # the last 10 cycles found nothing new
     r.llm.inner.synth = insight
     out = r.synthesize(mem.get_topic(tid))
     for q in open_tagged(mem, tid, "derived"):                        # its insight questions get researched
@@ -50,13 +59,23 @@ def test_a_request_is_withdrawn_if_the_checklist_slips_before_you_answer(m):
     mem, r, birds, quantum, mm = m
     _ready(mem, r, birds)
     assert mm.check() == ["How migrating birds navigate"]
-    mem.update_topic(birds, saturation=0.3)                          # new research finds new things again
+    _cycles(mem, birds, 4, new=2)                                    # a little new: 60% - the request stands
+    assert mm.check() == [] and mem.get_topic(birds)["mastery"] == "candidate"
+    _cycles(mem, birds, 3, new=2)                                    # clearly new again: 30% - withdrawn
     assert mm.check() == []
     assert mem.get_topic(birds)["mastery"] == ""
     w = [e for e in mem.events() if e["kind"] == "mastery_withdrawn"]
     assert len(w) == 1 and set(w[0]["unmet"]) == {"saturated"}
-    mem.update_topic(birds, saturation=0.9)                          # ... and asks again once it's met
+    _cycles(mem, birds, 10)                                          # ... and asks again once it's met
     assert mm.check() == ["How migrating birds navigate"]
+
+
+def test_three_quiet_cycles_are_not_enough_to_ask(m):
+    mem, r, birds, quantum, mm = m
+    _ready(mem, r, birds)
+    _cycles(mem, birds, 7, new=2)                                    # mostly productive ...
+    _cycles(mem, birds, 3)                                           # ... then three quiet cycles: 30%
+    assert mm.check() == [] and mem.get_topic(birds)["mastery"] == ""
 
 
 def test_an_answered_request_is_not_withdrawn(m):
@@ -64,7 +83,7 @@ def test_an_answered_request_is_not_withdrawn(m):
     _ready(mem, r, birds)
     mm.check()
     mem.log("mastery_confirm", topic_id=birds)                       # you confirmed on the dashboard
-    mem.update_topic(birds, saturation=0.3)
+    _cycles(mem, birds, 10, new=2)
     mm.check()
     assert mem.get_topic(birds)["mastery"] == "candidate"
 

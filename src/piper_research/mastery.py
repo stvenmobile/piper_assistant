@@ -41,13 +41,27 @@ def open_tagged(mem, topic_id: int, tag: str) -> list[dict]:
         if norm(r["text"]) not in asked]
 
 
+def recent_saturation(mem, topic_id: int, window: int = 10) -> float:
+    """Share of the topic's last `window` research cycles that found nothing new (0 until it has that many).
+    Mastery uses this, not topics.saturation: that one looks at only the last 3 cycles (enough for choosing
+    what to research next) and jumps 0 / 33 / 67 / 100%, so requests flickered on and off within hours."""
+    eps = [e for e in mem.episodes(topic_id, limit=window * 3)
+           if e.get("kind", "research") == "research" and e["outcome"] in ("progress", "stalled")][:window]
+    if len(eps) < window:
+        return 0.0
+    return sum(1 for e in eps if not (e.get("stats") or {}).get("new")) / window
+
+
 def readiness(mem, topic: dict, cfg: dict) -> dict:
     """The mastery checklist for a topic: {"score": 0..1, "ready": bool, "criteria": [...]}."""
     tid = topic["id"]
-    sat = topic.get("saturation") or 0.0
+    window = cfg.get("mastery_window", 10)
+    sat = recent_saturation(mem, tid, window)
     n = mem.db.execute("SELECT COUNT(*) FROM findings WHERE topic_id = ? AND kind != 'question'"
                        " AND relevance != 'off_topic'", (tid,)).fetchone()[0]
-    need_sat, need_n = cfg.get("mastery_saturation", 0.8), cfg.get("mastery_min_findings", 60)
+    need_sat, need_n = cfg.get("mastery_saturation", 0.7), cfg.get("mastery_min_findings", 60)
+    if topic.get("mastery") == "candidate":            # hysteresis: once asked, keep asking unless it clearly slips
+        need_sat = cfg.get("mastery_keep_saturation", 0.5)
     synth = mem.db.execute("SELECT COUNT(*) FROM episodes WHERE topic_id = ? AND kind = 'synthesis'"
                            " AND outcome IN ('progress', 'stalled')", (tid,)).fetchone()[0]
     derived, gaps = len(open_tagged(mem, tid, "derived")), len(open_tagged(mem, tid, "mastery_gap"))
@@ -55,7 +69,7 @@ def readiness(mem, topic: dict, cfg: dict) -> dict:
                               (tid,)).fetchone() is not None
     crit = [
         {"key": "saturated", "label": "Recent research finds little new", "met": sat >= need_sat,
-         "detail": f"saturation {sat:.0%} (needs {need_sat:.0%})"},
+         "detail": f"{sat:.0%} of the last {window} cycles found nothing new (needs {need_sat:.0%})"},
         {"key": "evidence", "label": "A solid evidence base", "met": n >= need_n, "detail": f"{n} findings (needs {need_n})"},
         {"key": "synthesis", "label": "Relationships explored (synthesis)", "met": synth > 0,
          "detail": f"{synth} synthesis cycle(s)"},

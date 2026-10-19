@@ -161,7 +161,8 @@ def run_rhythm(r, mem, cfg):
             since = prev[0]["period_end"] if prev else state["day_start"]
             until = utc_now()
             cutoff = (datetime.now(timezone.utc) - timedelta(hours=4)).isoformat(timespec="seconds")
-            decisions = [e for e in mem.events() if e["kind"] == "topic_decision" and e["ts"] >= cutoff]
+            decisions = [{"ts": ts, **json.loads(d)} for ts, d in mem.db.execute(
+                "SELECT ts, data FROM events WHERE kind = 'topic_decision' AND ts >= ? ORDER BY id", (cutoff,))]
             try:
                 rid = cur.daily_report(since, until, decisions)
                 print(f"[Research] Daily report #{rid} written")
