@@ -32,7 +32,7 @@ from piper_vision.tracker import Tracker, attention_deg
 
 
 def draw(frame, boxes, target, info: str, label: str = ""):
-    for (x, y, w, h, s) in boxes:
+    for (x, y, w, h, s, *_) in boxes:                    # detector rows also carry landmarks (for recognition)
         cv2.rectangle(frame, (int(x), int(y)), (int(x + w), int(y + h)), (90, 200, 90), 2)
         cv2.putText(frame, f"{s:.2f}", (int(x), int(y) - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (90, 200, 90), 2)
     if target is not None:
