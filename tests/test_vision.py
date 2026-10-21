@@ -59,3 +59,38 @@ def test_attention_glances_toward_the_person():
 def test_attention_message_leaves_state_alone():
     assert protocol.attention(-30) == {"t": "FACE", "attention": -30.0}
     assert protocol.attention(None) == {"t": "FACE", "attention": None}
+
+
+# ---- face following ------------------------------------------------------------------------------
+from piper_vision.follow import FollowConfig, Follower
+
+
+def test_follow_turns_toward_a_face_on_the_right():
+    f = Follower(FollowConfig(gain=0.5, deadband_deg=2))
+    pan, tilt = f.update(0.0, 0.0, -33.0, 10.0, 0.0)       # face 10 deg to the camera's right
+    assert pan == pytest.approx(-5.0) and tilt == -33.0      # pan + = left, so right is -
+
+
+def test_follow_tilts_up_through_the_linkage_ratio():
+    f = Follower(FollowConfig(gain=0.5, deadband_deg=2, tilt_ratio=1.6))
+    pan, tilt = f.update(0.0, 0.0, -33.0, 0.0, 5.0)        # face 5 deg above the middle
+    assert pan == 0.0 and tilt == pytest.approx(-33.0 + 5 * 1.6 * 0.5)
+
+
+def test_follow_ignores_small_errors():
+    f = Follower(FollowConfig(deadband_deg=2.5))
+    assert f.update(0.0, 0.0, -33.0, 1.0, 1.0) is None
+
+
+def test_follow_caps_the_step_and_respects_limits():
+    f = Follower(FollowConfig(gain=1.0, max_step_deg=12, pan_limits=(-90, 90), tilt_limits=(-70, 6.3)))
+    assert f.update(0.0, 0.0, -33.0, -30.0, 0.0)[0] == pytest.approx(12.0)
+    assert f.update(0.1, 85.0, 5.0, -30.0, 20.0) == (90.0, 6.3)
+
+
+def test_follow_goes_home_after_nobody_for_a_while():
+    f = Follower(FollowConfig(home=(0.0, -33.0), home_after_s=4.0))
+    f.update(0.0, 30.0, -20.0, 5.0, 0.0)
+    assert f.update(2.0, 30.0, -20.0, None, None) is None
+    assert f.update(4.5, 30.0, -20.0, None, None) == (0.0, -33.0)
+    assert f.update(9.0, 0.0, -33.0, None, None) is None     # once

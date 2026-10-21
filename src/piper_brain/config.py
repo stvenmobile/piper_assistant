@@ -83,6 +83,26 @@ DEFAULTS: dict = {
         "enroll_min_looks": 3,            # ... at least this many, or enrolment fails
         "enroll_s": 8.0,                  # ... within this long
         "enroll_gap_s": 0.3,              # ... this far apart
+        # face following: the pan/tilt servos (STS3215 on the Waveshare bus adapter, USB) turn the head
+        # toward the tracked face. Angles are servo degrees: pan + = left, tilt + = up (see servos.py)
+        "follow": {
+            "enabled": True,
+            "port": "auto",               # "auto" = the adapter's CH343 USB ID, else e.g. /dev/ttyACM0
+            "baud": 1000000,
+            "pan_id": 1, "tilt_id": 2,
+            "pan_dir": -1, "tilt_dir": -1,    # raw servo direction -> robot convention (test stand)
+            "pan_limits": [-90, 90],      # the tilt cable's loop
+            "tilt_limits": [-70, 6.3],    # head about -24 .. +25 (also stored in the tilt servo)
+            "home": [0, -33],             # straight ahead, head level
+            "speed": 1500,                # servo steps/s (~130 deg/s) and acceleration (x100 steps/s^2)
+            "acc": 40,
+            "rate_hz": 10,                # follow updates per second
+            "gain": 0.6,                  # fraction of the error corrected per update
+            "deadband_deg": 2.5,          # don't chase errors smaller than this
+            "max_step_deg": 12,
+            "tilt_ratio": 1.6,            # tilt servo degrees per degree of head tilt (near level)
+            "home_after_s": 4.0,          # nobody in view this long -> look straight ahead again
+        },
     },
     "memory": {                           # piper_memory: the research memory (SQLite + embeddings)
         "path": "data/memory/piper_memory.db",   # relative to the repo root; data/ is git-ignored

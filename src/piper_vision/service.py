@@ -26,6 +26,7 @@ from piper_head.client import HeadClient
 from piper_vision.camera import open_camera
 from piper_vision.detector import FaceDetector
 from piper_vision.faces import FaceLibrary, Identity, usable_face
+from piper_vision.follow import FollowConfig, Follower
 from piper_vision.hub import Hub
 from piper_vision.preview import Preview
 from piper_vision.tracker import Tracker, attention_deg
@@ -86,6 +87,20 @@ def main():
     if recognizer:
         known = ", ".join(library.names()) or "nobody yet"
         print(f"[Vision] Recognition on - knows {len(library.names())}: {known}")
+    fcfg = cfg["follow"]
+    servos, follower = None, None
+    if fcfg["enabled"]:
+        from piper_head.servos import PanTilt
+        servos = PanTilt(fcfg)
+        if servos.ok:
+            follower = Follower(FollowConfig(
+                gain=fcfg["gain"], deadband_deg=fcfg["deadband_deg"], max_step_deg=fcfg["max_step_deg"],
+                tilt_ratio=fcfg["tilt_ratio"], pan_limits=tuple(fcfg["pan_limits"]),
+                tilt_limits=tuple(fcfg["tilt_limits"]), home=tuple(fcfg["home"]),
+                home_after_s=fcfg["home_after_s"]))
+            servos.torque(True)
+            servos.move(*fcfg["home"], speed=400, acc=10)                    # start looking ahead, gently
+    last_follow = 0.0
     hub = Hub(cfg["events_port"], recognition=recognizer is not None)
     hub.start()
     preview = Preview(cfg["preview_port"]) if cfg["preview_port"] else None
@@ -175,6 +190,19 @@ def main():
         if changed and now - last_send > 0.1:
             head.attention(att)
             sent, last_send = att, now
+
+        # face following: move the head part of the way toward the face, a few times a second
+        if follower is not None and now - last_follow >= 1 / fcfg["rate_hz"]:
+            last_follow = now
+            pos = servos.position()
+            if pos is not None:
+                h_err, v_err = tracker.angles(target) if target is not None else (None, None)
+                goal = follower.update(now, pos[0], pos[1], h_err, v_err)
+                if goal is not None:
+                    if target is None:
+                        servos.move(*goal, speed=400, acc=10)                # going home: slowly
+                    else:
+                        servos.move(*goal)
 
         frames += 1
         if now - t_fps >= 1:
