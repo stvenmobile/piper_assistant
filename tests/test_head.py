@@ -122,3 +122,34 @@ def test_client_reaches_a_running_link():
     th.join(2)
     srv.close()
     assert got == [{"t": "FACE", "state": "thinking", "mood": "curious"}]
+
+
+# ---- which USB device is which: the face (CH340) vs the servo adapter (CH343), same maker ----------------
+def _ports(monkeypatch, ports):
+    from serial.tools import list_ports
+    from types import SimpleNamespace as P
+    monkeypatch.setattr(list_ports, "comports", lambda: [P(device=d, vid=v, pid=p) for d, v, p in ports])
+
+
+def test_head_link_finds_the_face_not_the_servo_adapter(monkeypatch):
+    from piper_head.link import find_port
+    _ports(monkeypatch, [("/dev/ttyACM0", 0x1A86, 0x55D3), ("/dev/ttyUSB0", 0x1A86, 0x7523)])
+    assert find_port("auto") == "/dev/ttyUSB0"
+    _ports(monkeypatch, [("/dev/ttyACM0", 0x1A86, 0x55D3)])
+    assert find_port("auto") is None
+    assert find_port("/dev/ttyX") == "/dev/ttyX"
+
+
+def test_servos_find_the_adapter_not_the_face(monkeypatch):
+    from piper_head.servos import find_port
+    _ports(monkeypatch, [("/dev/ttyUSB0", 0x1A86, 0x7523), ("/dev/ttyACM0", 0x1A86, 0x55D3)])
+    assert find_port() == "/dev/ttyACM0"
+    _ports(monkeypatch, [("/dev/ttyUSB0", 0x1A86, 0x7523)])
+    assert find_port() is None
+
+
+def test_mouth_message_is_forwarded_and_clamped():
+    from piper_head import protocol
+    from piper_head.link import HeadLink
+    assert protocol.mouth(1.7) == {"t": "MOUTH", "level": 1.0}
+    assert HeadLink().from_client(protocol.mouth(0.4)) == [{"t": "MOUTH", "level": 0.4}]

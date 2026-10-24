@@ -4,12 +4,13 @@ Head link service: the one program that talks to the piper-watch ESP32.
     python3 -m piper_head.link          (from src/; start_piper.sh starts it)
     python3 src/piper_head/link.py -v   verbose: print every message to and from the ESP32
 
-* Finds the ESP32-S3 on USB (Espressif's vendor ID) or uses head.serial_port, and reconnects
-  if it is unplugged or resets.
+* Finds the head's controller on USB - the face (the 2.4" CYD's CH340 USB-serial chip) or an
+  ESP32-S3 (Espressif's own USB) - or uses head.serial_port, and reconnects if it is unplugged
+  or resets. (The servo adapter's CH343 is from the same maker but a different chip: not matched.)
 * Sends a HEARTBEAT every head.heartbeat_s (the ESP32 shows "offline" and, later, stops the
   motor if they stop).
 * Listens on 127.0.0.1:head.port for local clients - the assistant, vision, tools - and forwards
-  their FACE / CONFIG / LOOK messages to the ESP32. ESP32 STATUS / EVENT lines go to every client.
+  their FACE / CONFIG / LOOK / MOUTH messages to the ESP32. ESP32 STATUS / EVENT lines go to every client.
 * Remembers the last FACE and CONFIG and re-sends them whenever the ESP32 (re)connects or
   reboots, so the ring is never stuck showing a stale state.
 """
@@ -27,7 +28,8 @@ from piper_brain.config import CONFIG
 from piper_head import protocol
 
 ESPRESSIF_VID = 0x303A
-FORWARDED = {"FACE", "CONFIG", "LOOK"}
+CH340 = (0x1A86, 0x7523)          # the CYD face's USB-serial chip (the servo adapter is a CH343, 1A86:55D3)
+FORWARDED = {"FACE", "CONFIG", "LOOK", "MOUTH"}
 
 
 class HeadLink:
@@ -71,7 +73,11 @@ def find_port(setting: str) -> str | None:
     if setting and setting != "auto":
         return setting
     from serial.tools import list_ports
-    for p in list_ports.comports():
+    ports = list(list_ports.comports())
+    for p in ports:
+        if (p.vid, p.pid) == CH340:
+            return p.device
+    for p in ports:
         if p.vid == ESPRESSIF_VID:
             return p.device
     return None

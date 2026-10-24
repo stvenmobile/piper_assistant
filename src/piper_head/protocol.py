@@ -2,7 +2,7 @@
 Messages between the Jetson and the piper-watch ESP32: newline-delimited JSON, one object per
 line, each with a "t" (type) field. Unknown types and fields are ignored on both sides.
 
-    Jetson -> ESP32   HEARTBEAT {seq}, FACE {state, mood?, attention?}, CONFIG {...}, LOOK {...}
+    Jetson -> ESP32   HEARTBEAT {seq}, FACE {state, mood?, attention?}, MOUTH {level}, CONFIG {...}, LOOK {...}
     ESP32 -> Jetson   STATUS {...}, EVENT {what}
 
 The same lines are spoken between the head link service and its local clients (the assistant,
@@ -66,6 +66,12 @@ def attention(deg: float | None) -> dict:
     """Move (or, with None, clear) the ring's attention arc without touching its state/mood -
     what the vision service sends. The ESP32 and the link keep the state they have."""
     return {"t": "FACE", "attention": None if deg is None else float(deg)}
+
+
+def mouth(level: float) -> dict:
+    """The mouth's opening while speaking: speech loudness 0..1 (send ~20 times a second; without
+    it the mouth pulses on its own while the state is "speaking")."""
+    return {"t": "MOUTH", "level": round(max(0.0, min(1.0, float(level))), 3)}
 
 
 def config(**fields) -> dict:

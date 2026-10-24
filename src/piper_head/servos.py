@@ -18,22 +18,20 @@ if __package__ in (None, ""):
 ADDR_TORQUE, ADDR_ACC, ADDR_GOAL, ADDR_POS = 40, 41, 42, 56
 STEPS_PER_DEG = 4096 / 360
 CENTRE = 2048
-CH343_VID = "1a86"
+CH343 = (0x1A86, 0x55D3)        # the Waveshare adapter's USB-serial chip - NOT the face's CH340 (1A86:7523)
 
 
 def find_port() -> str | None:
-    """The Waveshare adapter's serial port (by its CH343 USB ID), or None."""
-    hits = sorted(glob.glob(f"/dev/serial/by-id/*{CH343_VID}*")) + sorted(glob.glob("/dev/serial/by-id/*CH34*"))
-    if hits:
-        return hits[0]
+    """The Waveshare adapter's serial port (its CH343's exact USB ID), or None."""
     try:
         from serial.tools import list_ports
-        for p in list_ports.comports():
-            if p.vid == int(CH343_VID, 16):
+        for p in sorted(list_ports.comports(), key=lambda p: p.device):
+            if (p.vid, p.pid) == CH343:
                 return p.device
     except ImportError:
         pass
-    return None
+    hits = sorted(glob.glob("/dev/serial/by-id/*1a86_USB_Single_Serial*"))   # the CH343's by-id name
+    return hits[0] if hits else None
 
 
 class PanTilt:
