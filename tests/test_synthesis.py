@@ -21,6 +21,8 @@ class SynthLLM(FakeLLM):
         self.synth = None
         self.ground = "grounded"
         self.effect = "supports"
+        self.same = None                # SAME_INSIGHT verdict; None = same only if the words are identical
+        self.grounded_with = []         # what the grounding check was shown
         self.last_thinking = ""
 
     def json(self, system, user, schema, retries=1, think=None, **kw):
@@ -31,7 +33,12 @@ class SynthLLM(FakeLLM):
             return self.synth(ids) if callable(self.synth) else self.synth
         if schema is P.GROUND_SCHEMA:
             self.calls += 1
+            self.grounded_with.append(user)
             return {"verdict": self.ground, "reason": "they say so"}
+        if schema is P.SAME_INSIGHT_SCHEMA:
+            self.calls += 1
+            earlier, new = (line.split(": ", 1)[1] for line in user.split("\n")[:2])
+            return {"same": earlier == new if self.same is None else self.same, "reason": "compared"}
         if schema is P.EVIDENCE_SCHEMA:
             self.calls += 1
             return {"effect": self.effect, "reason": "the new finding bears on it"}
@@ -125,6 +132,35 @@ def test_a_restated_insight_strengthens_the_existing_one(two_topics):
     assert out["restated"] == 1 and len(mem.insights()) == 1
     again = mem.get_insight(first["id"])
     assert again["confidence"] == pytest.approx(0.55) and again["events"][-1]["kind"] == "restated"
+
+
+def test_a_close_but_different_insight_is_kept_when_the_judge_says_so(two_topics):
+    mem, llm, r, birds, *_ = two_topics
+    llm.synth = insight
+    r.synthesize(mem.get_topic(birds))
+    mem.db.execute("DELETE FROM events WHERE kind = 'synthesized'")
+    llm.synth = lambda ids: insight(ids, statement="Birds and plants may both use radical pairs, but only birds steer by them.")
+    llm.same = False
+    out = r.synthesize(mem.get_topic(birds))
+    assert out["restated"] == 0 and len(mem.insights()) == 2
+
+
+def test_a_reworded_repeat_is_caught_by_the_judge(two_topics):
+    mem, llm, r, birds, *_ = two_topics
+    llm.synth = insight
+    r.synthesize(mem.get_topic(birds))
+    mem.db.execute("DELETE FROM events WHERE kind = 'synthesized'")
+    llm.synth = lambda ids: insight(ids, statement="Plants and birds may both rely on radical pairs to sense light-driven fields.")
+    llm.same = True
+    out = r.synthesize(mem.get_topic(birds))
+    assert out["restated"] == 1 and len(mem.insights()) == 1
+
+
+def test_grounding_sees_the_thesis_as_a_thesis(two_topics):
+    mem, llm, r, birds, *_ = two_topics
+    llm.synth = insight
+    r.synthesize(mem.get_topic(birds))
+    assert "thesis (not evidence): Birds navigate mainly by magnetism." in llm.grounded_with[0]
 
 
 def test_derived_questions_have_their_own_cap(two_topics):

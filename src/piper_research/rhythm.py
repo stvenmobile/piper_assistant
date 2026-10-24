@@ -23,7 +23,12 @@ from piper_research import prompts as P
 from piper_research.llm import LLMError
 from piper_research.mastery import Mastery, free_slots
 from piper_research.schedule import DAYS, parse_window
-from piper_research.verify import norm, tidy_remark
+from piper_research.verify import norm, strip_citations, tidy_remark
+
+
+def _plain(items: list[str]) -> str:
+    """Numbered, without finding numbers (for the report writer, who sees no finding texts)."""
+    return P.numbered([strip_citations(t) for t in items])
 
 
 def _in(window, now: datetime) -> bool:
@@ -260,6 +265,22 @@ class Curator:
         return decisions
 
     # ---- reports ----------------------------------------------------------------------------------
+    def _narrate(self, prompt: str, material: str, schema: dict, fields: tuple) -> tuple[dict, list[str]]:
+        """A report's narrative parts, checked before they go out: the draft, then a second pass that
+        revises it against the same material (overstatement toned down, claims not in the material
+        and finding numbers removed). Returns (the parts, what the check changed). The writer only
+        sees insights without their finding numbers - a bare number got a meaning it doesn't have."""
+        r = self.r
+        draft = r.llm.json(prompt, material, schema)
+        draft = {f: strip_citations(tidy_remark(draft.get(f, ""))) for f in fields}
+        try:
+            c = r.llm.json(P.NARRATIVE_CHECK, "MATERIAL:\n" + material + "\n\nDRAFT:\n"
+                           + "\n".join(f"{f}: {draft[f]}" for f in fields), P.check_schema(fields), think=r.judge_think)
+        except LLMError as e:
+            return draft, [f"(not checked: {str(e)[:120]})"]
+        out = {f: strip_citations(tidy_remark(c.get(f) or "")) or draft[f] for f in fields}
+        return out, [" ".join(str(x).split()) for x in c.get("changes") or [] if str(x).strip()][:8]
+
     def _balances(self) -> dict:
         return {t["name"]: {k: v["count"] for k, v in self.mem.stance_balance(t["id"]).items()}
                 for t in self.mem.topics() if t["thesis"]}
@@ -307,13 +328,13 @@ class Curator:
         top = sorted(top, key=lambda i: -i["confidence"])[:6]
         if top or eps:
             try:
-                narrative = r.llm.json(P.DAILY, (
-                    "Your strongest current insights:\n" + P.numbered([f"[{i['kind']}, {i['confidence']:.1f}] {i['statement']}" for i in top])
-                    + "\n\nChanged today:\n" + P.numbered([f"{c['effect']}: {c['statement']}" for c in changed])
+                narrative, data["narrative_check"] = self._narrate(P.DAILY, (
+                    "Your strongest current insights:\n" + _plain([f"[{i['kind']}, {i['confidence']:.1f}] {i['statement']}" for i in top])
+                    + "\n\nChanged today:\n" + _plain([f"{c['effect']}: {c['statement']}" for c in changed])
                     + "\n\nStuck:\n" + P.numbered([f"{s['topic']} ({s['stalled']} of {s['cycles']} cycles stalled)" for s in stuck])
-                    + "\n\nDerived questions waiting:\n" + P.numbered([q for qs in nxt.values() for q in qs])
+                    + "\n\nDerived questions waiting:\n" + _plain([q for qs in nxt.values() for q in qs])
                     + f"\n\nToday: {len(research)} research cycles ({new_findings} new findings), {len(synth)} synthesis cycles."),
-                    P.DAILY_SCHEMA)
+                    P.DAILY_SCHEMA, ("thinking", "stuck", "next", "spoken"))
             except LLMError as e:
                 mem.log("research_error", error=f"daily report: {e}"[:200])
         day = datetime.fromisoformat(until).astimezone()
@@ -373,13 +394,15 @@ class Curator:
         held = [i for i in mem.insights(limit=500) if i["status"] == "supported" and i["updated_at"] >= since]
         fell = [i for i in mem.insights(limit=500) if i["status"] in ("weakened", "dropped") and i["updated_at"] >= since]
         made = [i for i in mem.insights(limit=500) if i["created_at"] >= since and i["status"] != "rejected"]
+        checked = []
         try:
-            ov = r.llm.json(P.WEEKLY, (
-                "Insights this week:\n" + P.numbered([i["statement"] for i in made][:12])
-                + "\n\nHeld up:\n" + P.numbered([i["statement"] for i in held]) + "\n\nFell:\n" + P.numbered([i["statement"] for i in fell])
+            ov, checked = self._narrate(P.WEEKLY, (
+                "Insights this week:\n" + _plain([i["statement"] for i in made][:12])
+                + "\n\nHeld up:\n" + _plain([i["statement"] for i in held]) + "\n\nFell:\n" + _plain([i["statement"] for i in fell])
                 + "\n\nThesis balances (start -> now):\n" + P.numbered([f"{n}: {first.get(n, {})} -> {b}" for n, b in bal.items()])
                 + "\n\nTopic decisions:\n" + P.numbered([f"{d['action']} {d['topic']}: {d['reason']}" for d in decisions or []])),
-                P.WEEKLY_SCHEMA).get("overview", "")
+                P.WEEKLY_SCHEMA, ("overview",))
+            ov = ov["overview"]
         except LLMError:
             ov = ""
         day = datetime.fromisoformat(until).astimezone()
@@ -399,6 +422,6 @@ class Curator:
                                                or ["- _(no changes)_"])
         rid = mem.add_report("weekly", since, until, "\n".join(lines),
                              {"balances": bal, "first": first, "held": [i["id"] for i in held],
-                              "fell": [i["id"] for i in fell], "decisions": decisions or []})
+                              "fell": [i["id"] for i in fell], "decisions": decisions or [], "narrative_check": checked})
         mem.log("report", report=rid, report_kind="weekly")
         return rid

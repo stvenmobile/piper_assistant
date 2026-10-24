@@ -56,8 +56,14 @@ class CurLLM:
 
     def json(self, system, user, schema, retries=1, think=None, **kw):
         if schema is P.DAILY_SCHEMA:
-            return {"thinking": "I suspect birds and plants share a trick.", "stuck": "Quantum biology is thin.",
+            return {"thinking": "I suspect birds and plants share a trick (F12), and it resolves everything.",
+                    "stuck": "Quantum biology is thin.",
                     "next": "Plant magnetoreception.", "spoken": "I think birds and plants share a trick."}
+        if system is P.NARRATIVE_CHECK:
+            self.checked = user
+            draft = dict(line.split(": ", 1) for line in user.split("DRAFT:\n", 1)[1].split("\n"))
+            fixed = {k: v.replace("it resolves everything", "it may explain a little") for k, v in draft.items()}
+            return {**fixed, "changes": ["toned down 'resolves everything'"] if fixed != draft else []}
         if schema is P.WEEKLY_SCHEMA:
             return {"overview": "A week of radical pairs."}
         if schema is P.SPAWN_SCHEMA:
@@ -127,6 +133,18 @@ def test_daily_report_has_its_sections_and_becomes_the_spoken_remark(cur):
     assert rep["data"]["synthesis"] == 1 and rep["data"]["insights"]
     assert "`derived`" in rep["text"]                                   # derived questions are marked
     assert mem.remarks()[-1]["kind"] == "overnight" and "birds and plants" in mem.remarks()[-1]["text"]
+
+
+def test_the_daily_narrative_is_checked_and_cites_no_finding_numbers(cur):
+    mem, llm, r, birds, quantum, c = cur
+    since = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(timespec="seconds")
+    r.synthesize(mem.get_topic(birds))
+    c.daily_report(since, (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat(timespec="seconds"))
+    rep = mem.reports("daily")[0]
+    thinking = rep["text"].split("## What I'm starting to think\n", 1)[1].split("\n", 1)[0]
+    assert thinking == "I suspect birds and plants share a trick, and it may explain a little."
+    assert rep["data"]["narrative_check"] == ["toned down 'resolves everything'"]
+    assert "MATERIAL:" in r.llm.checked and "(F12)" not in r.llm.checked     # the check sees the draft without numbers
 
 
 def test_daily_report_shows_balance_changes_since_the_last_one(cur):

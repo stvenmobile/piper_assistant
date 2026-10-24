@@ -194,7 +194,7 @@ OVERNIGHT_SCHEMA = {"type": "object", "properties": {"summary": {"type": "string
 
 
 # ---- 6. SYNTHESIS: relationships between findings ------------------------------------------------
-SYNTH_PROMPT_VERSION = 1
+SYNTH_PROMPT_VERSION = 2          # 2: the grounding check also asks whether the conclusion follows
 
 SYNTHESIZE = ROLE + """
 You are not reading anything new now. You are looking for RELATIONSHIPS between findings you
@@ -238,17 +238,32 @@ SYNTH_SCHEMA = {
 }
 
 GROUND = ROLE + """
-Check one proposed insight against the findings it claims to rest on. Is it actually supported
-by them (with ordinary reasoning, no outside facts)?
-- grounded: the findings together support it as stated.
-- partly: the direction is right but it claims more than they show.
-- unsupported: they don't support it, or it contradicts them.
+Check one proposed insight against the findings it claims to rest on, with ordinary reasoning and
+no outside facts. Two questions:
+1. Do the findings say what the insight uses from them?
+2. Does its CONCLUSION follow? Watch for leaps: "X happens, so the thesis is right" when X would be
+   just as expected if the thesis were wrong; the topic's thesis restated with the findings as
+   decoration; "explains", "resolves" or "implies" where the findings only sit side by side.
+- grounded: the findings support it as stated and the conclusion follows from them.
+- partly: the direction is right but it claims more than they show (an overstated conclusion).
+- unsupported: they don't support it, it contradicts them, or the conclusion doesn't follow
+  (a non sequitur, or the thesis restated).
 Give a one-sentence reason."""
 
 GROUND_SCHEMA = {"type": "object",
                  "properties": {"verdict": {"type": "string", "enum": ["grounded", "partly", "unsupported"]},
                                 "reason": {"type": "string", "maxLength": 300}},
                  "required": ["verdict", "reason"]}
+
+SAME_INSIGHT = ROLE + """
+Is a NEW insight the same as an EARLIER one - the same relationship, said again (perhaps citing
+other findings or in other words)? Same means the earlier one already makes the new one's point;
+a new insight that adds a genuinely different mechanism, consequence or tension is NOT the same,
+even on the same subject."""
+
+SAME_INSIGHT_SCHEMA = {"type": "object",
+                       "properties": {"same": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 300}},
+                       "required": ["same", "reason"]}
 
 EVIDENCE = ROLE + """
 Research was just done on a question an earlier insight raised. Do the NEW findings support the
@@ -268,7 +283,9 @@ calibrated (say "I suspect", "the evidence suggests" - never overstate an insigh
   connected where they connect (at most 150 words).
 - "stuck": where research stalled and what you think is missing (at most 60 words).
 - "next": what you plan to chase next and why (at most 60 words).
-- "spoken": a 1-2 sentence version to say aloud in the morning (at most 45 words)."""
+- "spoken": a 1-2 sentence version to say aloud in the morning (at most 45 words).
+Don't cite finding numbers (F123): the insights are listed under your text with their citations.
+Describe findings in words, and only as the material below describes them."""
 
 DAILY_SCHEMA = {"type": "object",
                 "properties": {"thinking": {"type": "string", "maxLength": 1100},
@@ -280,10 +297,30 @@ DAILY_SCHEMA = {"type": "object",
 WEEKLY = ROLE + """
 Write the overview for your weekly "state of my mind" report, as Piper, first person, calibrated.
 For the week as a whole: what changed in your understanding, which insights held up and which
-fell, and the decisions you made about your topics and why (at most 220 words)."""
+fell, and the decisions you made about your topics and why (at most 220 words).
+Don't cite finding numbers (F123); describe findings in words, only as the material describes them."""
 
 WEEKLY_SCHEMA = {"type": "object", "properties": {"overview": {"type": "string", "maxLength": 1600}},
                  "required": ["overview"]}
+
+NARRATIVE_CHECK = ROLE + """
+Before a report goes out, check its draft against the material it was written from. Revise each
+part of the draft so it claims nothing the material doesn't support:
+- tone down overstatement: "resolves", "proves", "confirms", "profound", "strong connections" ->
+  what the material actually shows ("suggests", "may explain"), keeping each insight's confidence;
+- remove claims about findings, studies or links that are not in the material;
+- remove finding numbers (F123).
+Keep the voice, the first person and the length; change nothing that is already fair. If a part is
+fine, return it unchanged. List what you changed in "changes" (empty if nothing)."""
+
+
+def check_schema(fields) -> dict:
+    """NARRATIVE_CHECK's reply: the same fields as the draft, revised, plus the list of changes."""
+    return {"type": "object",
+            "properties": {**{f: {"type": "string", "maxLength": 1600} for f in fields},
+                           "changes": {"type": "array", "items": {"type": "string", "maxLength": 300}, "maxItems": 8}},
+            "required": [*fields, "changes"]}
+
 
 SPAWN = ROLE + """
 These related questions all grew out of one research topic and keep pointing the same way. Name

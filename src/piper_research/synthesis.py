@@ -11,7 +11,9 @@ findings Piper already has for RELATIONSHIPS between them, and keeps the trail o
                  each with its basis and 1-2 new questions carrying its nuance
     CHECK        every citation must be one of the chosen findings; each insight gets a grounding
                  check (grounded | partly | unsupported - unsupported ones are kept, as REJECTED,
-                 so the trail shows what didn't survive); a restated insight bumps the existing one
+                 so the trail shows what didn't survive): do the findings say it, and does the
+                 conclusion follow (not the thesis restated, not a leap); a restated insight - one of
+                 the closest earlier ones by meaning, as judged by the model - bumps the existing one
     STORE        the insight + its TRACE (selection, steps and their checks, grounding, the model's
                  raw thinking, model and prompt version); its questions become open questions
                  tagged "derived" (a cap per topic, separate from the other open questions)
@@ -172,14 +174,32 @@ class SynthesisMixin:
             " WHERE f.topic_id = ? AND f.kind = 'question' AND t.name = 'derived'", (topic_id,)) if norm(text) not in asked)
         return max(0, self.cfg.get("max_derived_open", 10) - n)
 
-    def _ground(self, statement: str, basis: list[dict]) -> dict:
-        user = f"Insight: {statement}\n\nFindings it rests on:\n" + "\n".join(f"[F{f['id']}] {f['text']}" for f in basis)
+    def _ground(self, statement: str, basis: list[dict], thesis: str = "") -> dict:
+        user = (f"Insight: {statement}\n" + (f"The topic's thesis (not evidence): {thesis}\n" if thesis else "")
+                + "\nFindings it rests on:\n" + "\n".join(f"[F{f['id']}] {f['text']}" for f in basis))
         try:
             r = self.llm.json(P.GROUND, user, P.GROUND_SCHEMA, think=self.judge_think)
         except LLMError as e:
             return {"verdict": "unchecked", "reason": f"check failed: {str(e)[:160]}"}
         return {"verdict": r.get("verdict", "unchecked"), "reason": " ".join(r.get("reason", "").split()),
                 "thinking": getattr(self.llm, "last_thinking", "") or ""}
+
+    def _restates(self, statement: str) -> dict | None:
+        """The earlier insight this one only says again, if any: the closest few by meaning, each
+        judged by the model (embeddings alone can't tell - related insights score as high as repeats)."""
+        cands = self.mem.similar_insights(statement, k=self.cfg.get("insight_dup_candidates", 3),
+                                          min_score=self.cfg.get("insight_dup_min", 0.85))
+        for c in cands:
+            try:
+                r = self.llm.json(P.SAME_INSIGHT, f"EARLIER: {c['statement']}\nNEW: {statement}", P.SAME_INSIGHT_SCHEMA,
+                                  think=self.judge_think)
+            except LLMError:                                 # no judge: only a near-verbatim repeat counts
+                if c["score"] >= 0.95:
+                    return c
+                continue
+            if r.get("same"):
+                return c
+        return None
 
     def synthesize(self, topic: dict) -> dict | None:
         """One synthesis cycle on `topic`; None if there is no material for one."""
@@ -237,12 +257,12 @@ class SynthesisMixin:
                     grounding = {"verdict": "unsupported", "reason": "cites fewer than 2 of the chosen findings"
                                  + (f" (unknown: {stray})" if stray else "")}
                 else:
-                    grounding = self._ground(statement, [f for f in rows if f["id"] in based])
+                    grounding = self._ground(statement, [f for f in rows if f["id"] in based], topic["thesis"])
                 status = "rejected" if grounding["verdict"] == "unsupported" else "new"
                 if grounding["verdict"] == "partly":
                     conf = round(max(0.2, conf - 0.2), 3)
                 if status != "rejected":
-                    dup = self.mem.similar_insight(statement)
+                    dup = self._restates(statement)
                     if dup:
                         self.mem.insight_event(dup["id"], "restated", episode=ep, statement=statement, basis=based)
                         self.mem.update_insight(dup["id"], confidence=dup["confidence"] + 0.05)

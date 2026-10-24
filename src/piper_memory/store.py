@@ -743,17 +743,23 @@ class MemoryStore:
         sql = "SELECT id FROM insights" + (" WHERE " + " AND ".join(where) if where else "")
         return [self.get_insight(r[0]) for r in self.db.execute(sql + " ORDER BY id DESC LIMIT ?", (*args, limit))]
 
-    def similar_insight(self, statement: str, min_score: float = 0.90) -> dict | None:
-        """An existing (not rejected) insight that says the same thing, if any."""
+    def similar_insights(self, statement: str, k: int = 3, min_score: float = 0.85) -> list[dict]:
+        """The k existing (not rejected) insights closest to `statement` by meaning, best first, each with
+        its "score". Candidates only: whether one says the SAME thing is for a judge to decide."""
         v = self._embed(statement)
         if v is None:
-            return None
-        best, best_s = None, min_score
+            return []
+        hits = []
         for r in self.db.execute("SELECT id, embedding FROM insights WHERE embedding IS NOT NULL AND status != 'rejected'"):
             sc = float(_vec(r["embedding"]) @ v)
-            if sc >= best_s:
-                best, best_s = r["id"], sc
-        return self.get_insight(best) if best else None
+            if sc >= min_score:
+                hits.append((sc, r["id"]))
+        return [self.get_insight(i) | {"score": sc} for sc, i in sorted(hits, reverse=True)[:k]]
+
+    def similar_insight(self, statement: str, min_score: float = 0.90) -> dict | None:
+        """The closest existing (not rejected) insight at or above min_score, if any."""
+        hits = self.similar_insights(statement, k=1, min_score=min_score)
+        return hits[0] if hits else None
 
     def insight_for_question(self, question_text: str) -> dict | None:
         """The insight a (derived) question came from, by the question's text."""

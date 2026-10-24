@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from piper_research.mastery import Mastery, apply_requests, free_slots, open_tagged, pending_requests, readiness
@@ -61,13 +63,36 @@ def test_a_request_is_withdrawn_if_the_checklist_slips_before_you_answer(m):
     assert mm.check() == ["How migrating birds navigate"]
     _cycles(mem, birds, 4, new=2)                                    # a little new: 60% - the request stands
     assert mm.check() == [] and mem.get_topic(birds)["mastery"] == "candidate"
-    _cycles(mem, birds, 3, new=2)                                    # clearly new again: 30% - withdrawn
+    _cycles(mem, birds, 3, new=2)                                    # clearly new again: 30% ...
+    assert mm.check() == [] and mem.get_topic(birds)["mastery"] == "candidate"     # ... slipping: wait and see
+    assert [e for e in mem.events() if e["kind"] == "mastery_slipping"]
+    _backdate(mem, "mastery_slipping", hours=13)                     # still slipped after the grace period: withdrawn
     assert mm.check() == []
     assert mem.get_topic(birds)["mastery"] == ""
     w = [e for e in mem.events() if e["kind"] == "mastery_withdrawn"]
     assert len(w) == 1 and set(w[0]["unmet"]) == {"saturated"}
     _cycles(mem, birds, 10)                                          # ... and asks again once it's met
     assert mm.check() == ["How migrating birds navigate"]
+
+
+def _backdate(mem, kind, hours):
+    ts = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    mem.db.execute("UPDATE events SET ts = ? WHERE kind = ?", (ts, kind))
+
+
+def test_a_request_that_recovers_within_the_grace_period_stands(m):
+    mem, r, birds, quantum, mm = m
+    _ready(mem, r, birds)
+    mm.check()
+    _cycles(mem, birds, 7, new=2)                                    # slips ...
+    mm.check()
+    _cycles(mem, birds, 10)                                          # ... and recovers
+    mm.check()
+    _backdate(mem, "mastery_slipping", hours=13)
+    mm.check()
+    assert mem.get_topic(birds)["mastery"] == "candidate"
+    assert not [e for e in mem.events() if e["kind"] == "mastery_withdrawn"]
+    assert [e for e in mem.events() if e["kind"] == "mastery_steady"]
 
 
 def test_three_quiet_cycles_are_not_enough_to_ask(m):

@@ -71,3 +71,14 @@ def tidy_remark(text: str) -> str:
 
 def split_sentences(text: str) -> list[str]:
     return [s for s in re.split(r"(?<=[.!?])\s+", text) if s]
+
+
+_CITE = re.compile(r"\s*[\[(](?:\s*F\d+\s*[,;]?\s*)+[\])]|\bF\d{2,}\b")
+
+
+def strip_citations(text: str) -> str:
+    """Text without finding numbers: "(F12, F34)", "[F12]" and bare "F12" go. For narratives, where a
+    number the writer only saw as a citation would get a meaning it doesn't have."""
+    t = _CITE.sub("", text or "")
+    t = re.sub(r"\(\s*\)|\[\s*\]", "", t)
+    return re.sub(r"\s+([,.;:)])", r"\1", " ".join(t.split()))

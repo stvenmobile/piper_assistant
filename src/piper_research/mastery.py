@@ -10,8 +10,9 @@ MASTERY - the goal for every topic. Piper works towards it; her household confir
                   a position        her reflection has said where the topic stands
     REQUEST     when every item is met, she REQUESTS mastery (topics.mastery = 'candidate')
     WITHDRAW    if the checklist slips before you answer (new research finds new things again, a
-                derived question opens), she withdraws the request at her next checkpoint and asks
-                again once every item is met - you're never asked to confirm a stale request
+                derived question opens) and STAYS slipped for mastery_grace_hours (12), she withdraws
+                the request and asks again once every item is met - a few productive cycles that
+                pass don't make a request flicker off and on, and you're never asked about a stale one
     CONFIRM     you confirm on the dashboard -> she writes the MASTERY BRIEF (bottom line, the
                 established core with its findings, live conjectures, edge-case questions, what her
                 insights added) and the topic moves to Deeply Explored (status 'explored'), freeing
@@ -103,10 +104,18 @@ class Mastery:
                 if t["id"] in answered:                        # your answer is on its way: leave it
                     continue
                 rd = readiness(self.mem, t, self.cfg)
-                if not rd["ready"]:
+                unmet = {c["key"]: c["detail"] for c in rd["criteria"] if not c["met"]}
+                since = self._slipping_since(t["id"])
+                if rd["ready"]:
+                    if since:
+                        self.mem.log("mastery_steady", topic_id=t["id"], name=t["name"])
+                elif since is None:                            # it just slipped: wait and see
+                    self.mem.log("mastery_slipping", topic_id=t["id"], name=t["name"], unmet=unmet)
+                    since = datetime.now(timezone.utc)
+                if not rd["ready"] and (datetime.now(timezone.utc) - since).total_seconds() \
+                        >= self.cfg.get("mastery_grace_hours", 12) * 3600:
                     self.mem.update_topic(t["id"], mastery="")
-                    self.mem.log("mastery_withdrawn", topic_id=t["id"], name=t["name"],
-                                 unmet={c["key"]: c["detail"] for c in rd["criteria"] if not c["met"]})
+                    self.mem.log("mastery_withdrawn", topic_id=t["id"], name=t["name"], unmet=unmet)
                 continue
             if t.get("mastery"):
                 continue
@@ -117,6 +126,13 @@ class Mastery:
                              criteria={c["key"]: c["detail"] for c in rd["criteria"]})
                 out.append(t["name"])
         return out
+
+    def _slipping_since(self, topic_id: int) -> datetime | None:
+        """When a requested topic's checklist started slipping (still unanswered, not since steady)."""
+        row = self.mem.db.execute(
+            "SELECT kind, ts FROM events WHERE kind IN ('mastery_requested', 'mastery_slipping', 'mastery_steady')"
+            " AND json_extract(data, '$.topic_id') = ? ORDER BY id DESC LIMIT 1", (topic_id,)).fetchone()
+        return datetime.fromisoformat(row["ts"]) if row and row["kind"] == "mastery_slipping" else None
 
     # ---- confirmed: the brief, and the move to Deeply Explored -----------------------------------------
     def brief(self, topic_id: int) -> int:
