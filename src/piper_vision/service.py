@@ -114,12 +114,24 @@ def main():
     sent = None                 # last attention sent (degrees or None)
     last_send = 0.0
     frames, fps, t_fps = 0, 0.0, time.monotonic()
+    fails = 0                   # reads failed in a row: a stalled stream never recovers, so reopen it
     while True:
         ok, frame = cap.read()
         if not ok:
+            fails += 1
             print("[Vision] Camera read failed - retrying")
+            if fails >= 2:
+                print("[Vision] Reopening the camera")
+                cap.release()
+                time.sleep(1)
+                try:
+                    cap, dev = open_camera(cfg)
+                except RuntimeError as e:
+                    print(f"[Vision] {e}")
+                fails = 0
             time.sleep(0.5)
             continue
+        fails = 0
         now = time.monotonic()
         boxes = detector.detect(frame)
         target = tracker.update(boxes, now)
