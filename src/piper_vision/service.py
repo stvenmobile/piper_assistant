@@ -23,7 +23,7 @@ import cv2
 
 from piper_brain.config import CONFIG
 from piper_head.client import HeadClient
-from piper_vision.camera import open_camera
+from piper_vision.camera import open_camera, quiet_jpeg_warnings
 from piper_vision.detector import FaceDetector
 from piper_vision.faces import FaceLibrary, Identity, usable_face
 from piper_vision.follow import FollowConfig, Follower
@@ -76,6 +76,7 @@ def label_for(ident, enrolling) -> str:
 
 def main():
     cfg = CONFIG["vision"]
+    quiet_jpeg_warnings()
     cap, dev = open_camera(cfg)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)); h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"[Vision] Camera {dev} at {w}x{h}")

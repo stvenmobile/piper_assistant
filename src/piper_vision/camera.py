@@ -4,7 +4,10 @@ Focus is locked (autofocus hunting looks bad while tracking); exposure stays aut
 isn't allowed to drop the frame rate in dim light.
 """
 import glob
+import os
 import subprocess
+import sys
+import threading
 from pathlib import Path
 
 import cv2
@@ -34,6 +37,24 @@ def set_controls(dev: str, focus: int | None):
         ctl("focus_automatic_continuous=0", "focus_auto=0")
         ctl(f"focus_absolute={int(focus)}")
     ctl("exposure_dynamic_framerate=0", "exposure_auto_priority=0")
+
+
+def quiet_jpeg_warnings():
+    """libjpeg (inside OpenCV) writes 'Corrupt JPEG data' to fd 2 for nearly every frame from some
+    webcams (the C270) - harmless, but it floods the console. Route fd 2 through a pipe that drops
+    those lines; Python's own stderr writes straight to the real one, so tracebacks never wait on it."""
+    real = os.dup(2)
+    sys.stderr = open(real, "w", buffering=1, closefd=False)
+    r, w = os.pipe()
+    os.dup2(w, 2)
+    os.close(w)
+
+    def pump():
+        with open(r, "rb") as src:
+            for line in src:
+                if not line.startswith((b"Corrupt JPEG data", b"Premature end of JPEG")):
+                    os.write(real, line)
+    threading.Thread(target=pump, daemon=True).start()
 
 
 def open_camera(cfg: dict) -> tuple[cv2.VideoCapture, str]:
