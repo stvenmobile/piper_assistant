@@ -1,0 +1,19 @@
+# Piper's research loop on piper-mind, in its daily rhythm (same as start_quiet.sh's --session).
+# Install: see deploy/piper-mind/README.md
+[Unit]
+Description=Piper research loop
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=steve
+WorkingDirectory=/home/steve/piper_assistant
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/steve/piper_assistant/.venv/bin/python src/piper_research/service.py --session
+# SIGTERM stops it between steps - a step can be a long model call
+TimeoutStopSec=600
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

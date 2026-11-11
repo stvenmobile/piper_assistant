@@ -1,0 +1,17 @@
+# Piper's dashboard on piper-mind: a read-only view of the research memory, home network only (port 8080).
+# Install: see deploy/piper-mind/README.md
+[Unit]
+Description=Piper dashboard
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=steve
+WorkingDirectory=/home/steve/piper_assistant
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/steve/piper_assistant/.venv/bin/python src/piper_dashboard/server.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

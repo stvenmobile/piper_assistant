@@ -202,6 +202,8 @@ ENV_OVERRIDES = {
     "PIPER_RESEARCH_WINDOWS": ("research", "windows"),
     "PIPER_RESEARCH_MODEL": ("research", "model"),
     "OPENALEX_API_KEY": ("research", "openalex_api_key"),   # keep the key in .env (git-ignored), not config.yaml
+    "PIPER_RESEARCH_ENABLED": ("research", "enabled"),     # per machine: false on the Orin once piper-mind
+    "PIPER_DASHBOARD_ENABLED": ("dashboard", "enabled"),   #   runs research and the dashboard
 }
 
 
@@ -233,7 +235,10 @@ def load_config(path: Path = CONFIG_PATH, env: dict | None = None) -> dict:
     cfg = deep_merge(DEFAULTS, user_cfg)
     for var, (section, key) in ENV_OVERRIDES.items():
         if env.get(var):
-            cfg[section][key] = env[var]
+            value = env[var]
+            if isinstance(cfg[section][key], bool):
+                value = value.strip().lower() in ("1", "true", "yes", "on")
+            cfg[section][key] = value
     return cfg
 
 

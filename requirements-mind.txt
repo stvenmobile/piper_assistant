@@ -1,0 +1,5 @@
+# piper-mind (the Proxmox VM): research, the memory store, the dashboard - no audio, GPU, camera or serial.
+# The models and embeddings are served by Ollama on the PC (llm.base_url).
+numpy>=1.24.0
+pyyaml>=6.0
+python-dotenv>=1.0

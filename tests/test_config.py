@@ -34,6 +34,13 @@ def test_environment_overrides_file(tmp_path):
     assert cfg["llm"]["base_url"] == DEFAULTS["llm"]["base_url"]
 
 
+def test_environment_switches_are_booleans(tmp_path):
+    cfg = load_config(tmp_path / "nope.yaml", env={"PIPER_RESEARCH_ENABLED": "false", "PIPER_DASHBOARD_ENABLED": "0"})
+    assert cfg["research"]["enabled"] is False and cfg["dashboard"]["enabled"] is False
+    cfg = load_config(tmp_path / "nope.yaml", env={"PIPER_RESEARCH_ENABLED": "True"})
+    assert cfg["research"]["enabled"] is True
+
+
 def test_repo_config_loads():
     from piper_brain.config import CONFIG
     for section in ("assistant", "llm", "audio", "weather"):
