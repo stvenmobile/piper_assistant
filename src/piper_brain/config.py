@@ -54,7 +54,9 @@ DEFAULTS: dict = {
     },
     "head": {                             # piper-watch: the head link service and its clients
         "enabled": True,
-        "serial_port": "auto",            # "auto" = the first Espressif USB device, else e.g. /dev/ttyACM0
+        "serial_port": "auto",            # "auto" = the CH340 face, else an Espressif USB device that isn't the mouth
+        "mouth_port": "auto",             # the mouth OLED's XIAO: "auto" = the Espressif device that answers
+                                          # "?" with "mouth:", a path like /dev/ttyACM1, or "off"
         "baud": 115200,
         "host": "127.0.0.1",
         "port": 8770,

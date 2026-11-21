@@ -369,6 +369,36 @@ On top of the state, a **mood** colours how it is shown - hue, brightness and te
 
 The mood comes from simple, inspectable signals - recognition events, error conditions, time of day, idle activity - plus an optional one-word mood tag the language model can add to its reply (stripped before the text is spoken). It decays back to neutral on its own.
 
+**The mouth** (the 2.08" OLED on its own XIAO ESP32-S3, piper-watch `firmware/mouth`) shows an expression and a small status symbol in its top-right corner. `src/piper_head/expression.py` picks them from the assistant's state:
+
+| Assistant state | Mouth                                                                          | Symbol                     |
+| --------------- | ------------------------------------------------------------------------------ | -------------------------- |
+| IDLE            | neutral, or **sleep** while research is paused (weekdays 10-17) or when told to | none (hidden while asleep) |
+| ENGAGED         | neutral (a smile for 3 s when a known face is welcomed)                        | listening: + / −           |
+| PROCESSING      | neutral                                                                        | thinking: three dots       |
+| SPEAKING        | talk, or **happy talk** for friendly replies (greetings, goodbyes, chat)        | none                       |
+| LLM failed      | neutral                                                                        | confused: ??? for 4 s      |
+
+Speech moves the lips only in the two talk modes (the mouth simulates speech by itself), so Piper never talks while frowning or surprised. Modes: neutral, talk, happytalk, smile, frown, surprise ("Oh!"), sleep, happysleep.
+
+Testing the mouth by hand (the head link must be running) and by voice:
+
+```bash
+python3 tools/head_cli.py mouth smile          # any mode; "mouth talk --level 180" sends speech levels too
+python3 tools/head_cli.py mouth demo           # its demo loop; "mouth demo-off" stops it
+python3 tools/head_cli.py status thinking      # idle, listening, thinking, confused
+```
+
+| Say                                         | Piper                                                 |
+| ------------------------------------------- | ----------------------------------------------------- |
+| "Piper, smile" / "frown" / "look surprised" | shows that face for 5 s                               |
+| "Piper, show me your faces"                 | every mouth mode, then every status symbol (~22 s)    |
+| "Piper, test normal talk"                   | says a sentence with the normal talking mouth         |
+| "Piper, test happy talk"                    | says a sentence with the happy talking mouth          |
+| "Piper, go to sleep" / "Piper, wake up"     | sleeps until the next conversation / says she's awake |
+
+(While Piper is running she re-sends her own mouth state every minute, so a `head_cli` change lasts until then or until her state changes.)
+
 ### 6.4 Messages
 
 The head link and the ESP32 exchange newline-delimited JSON over the ESP32's USB serial port (easy to read while debugging). The draft message set, shared with the piper-watch firmware:
@@ -379,6 +409,7 @@ The head link and the ESP32 exchange newline-delimited JSON over the ESP32's USB
 | Jetson → ESP32 | `FACE`      | `{"t":"FACE","state":"listening","mood":"warm","attention":-20}` |
 | Jetson → ESP32 | `LOOK`      | `{"t":"LOOK","pan":-18.5,"speed":60,"mode":"track"}`             |
 | Jetson → ESP32 | `CONFIG`    | `{"t":"CONFIG","pan_limits":[-100,100],"max_brightness":64}`     |
+| Jetson → mouth | `MOUTH`     | `{"t":"MOUTH","mode":"happytalk","symbol":"idle","level":0.4}` (the link sends the mouth `Mhappytalk`, `Iidle`, `L102`; only `level` goes to the head ESP32) |
 | ESP32 → Jetson | `STATUS`    | `{"t":"STATUS","pan":-17.9,"moving":true,"homed":true}`          |
 | ESP32 → Jetson | `EVENT`     | `{"t":"EVENT","what":"watchdog"}`                                |
 

@@ -70,6 +70,12 @@ class HeadClient:
         """Point the ring's attention arc (0 = top, clockwise from the front), or None to clear."""
         return self.send(protocol.attention(deg))
 
+    def mouth(self, mode: str | None = None, symbol: str | None = None, level: float | None = None,
+              demo: bool | None = None) -> bool:
+        """The mouth OLED: its expression (protocol.MOUTH_MODES), its status symbol
+        (protocol.MOUTH_SYMBOLS), a speech level 0..1, or its demo loop on / off."""
+        return self.send(protocol.mouth(level=level, mode=mode, symbol=symbol, demo=demo))
+
     def assistant_state(self, status: str, mood: str | None = None) -> bool:
         """The assistant's own state names (IDLE / ENGAGED / PROCESSING / SPEAKING)."""
         state = protocol.ASSISTANT_TO_FACE.get(status)

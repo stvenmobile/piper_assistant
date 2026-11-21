@@ -24,7 +24,9 @@ from piper_brain.supervisor import PiperSupervisor, PiperBrainState
 from piper_brain.state import AgentState, create_initial_state, append_and_truncate_message
 from piper_brain.journal import ActivityJournal
 from piper_head.client import HeadClient
+from piper_head.expression import Expression
 from piper_skills import Context
+from piper_skills.face_test import FaceTest
 from piper_skills.meet_person import MeetPerson, is_forget_request
 from piper_vision.client import VisionClient
 
@@ -33,12 +35,14 @@ running = True
 
 
 head = HeadClient()        # the light ring on piper-watch (silently does nothing if it isn't there)
+expression = Expression(head)   # the mouth OLED: expression + status symbol (piper_head/expression.py)
 
 
 def set_status(state: AgentState, status: str, mood: str = "neutral"):
-    """Change the assistant's state and show it on the head's light ring."""
+    """Change the assistant's state and show it on the head's light ring and mouth."""
     state["status"] = status
     head.assistant_state(status, mood)
+    expression.assistant(status, mood)
 
 
 def make_speaker():
@@ -74,6 +78,8 @@ def run_quiet():
     global running
     journal = ActivityJournal()
     head.assistant_state("IDLE", "neutral")
+    expression.assistant("IDLE")
+    expression.start()
     print("--- Piper Assistant: QUIET mode (not listening, not speaking) ---")
     journal.log("SYSTEM", "Piper started in quiet mode.", "Microphone closed; no speech.")
     threading.Thread(target=keyboard_monitor, args=(journal,), daemon=True).start()
@@ -100,6 +106,7 @@ def main():
     
     state: AgentState = create_initial_state()
     set_status(state, "IDLE")
+    expression.start()
 
     # Who is Piper talking to? With vision, whoever she recognises (and she won't help anyone
     # she doesn't know by name - piper_skills/meet_person.py). Without it, the old default.
@@ -123,11 +130,14 @@ def main():
                       welcome_back_s=60 * float(CONFIG["assistant"]["welcome_back_minutes"]),
                       required=bool(CONFIG["assistant"]["require_known_person"]))
 
+    face_test = FaceTest(expression, say)       # "Piper, smile", "show me your faces", ...
+
     def engage(name: str):
         """Piper has just greeted / met `name`: listen for them without the wake word."""
         nonlocal active_user
         active_user = name
         set_status(state, "ENGAGED")
+        expression.show(mode="smile", seconds=3.0)  # glad to see a known face
         state["last_interaction_time"] = time.time()
 
     journal.log("SYSTEM", "Piper assistant runtime initialized.", f"Inactivity timeout: {ENGAGED_TIMEOUT_SECONDS:g}s | Memory window: {CONFIG['assistant']['max_conversation_turns']} turns | TTS: {CONFIG['audio']['tts_engine']}")
@@ -200,6 +210,17 @@ def main():
                 state["last_interaction_time"] = time.time()
                 continue
 
+            # 2c. Mouth test phrases ("Piper, smile", "test happy talk", "go to sleep", ...)
+            face_action = face_test.handle(user_text)
+            if face_action:
+                journal.log("FACE_TEST", f"'{user_text}'", face_action)
+                if face_action == "sleep":
+                    set_status(state, "IDLE")          # ends the conversation; the sleep mouth shows
+                    print("[State Transition] ENGAGED -> IDLE (asked to sleep)")
+                else:
+                    state["last_interaction_time"] = time.time()
+                continue
+
             append_and_truncate_message(state, HumanMessage(content=user_text))
 
             # 3. Fast-Path Local Intent Check
@@ -207,8 +228,9 @@ def main():
             if quick_reply:
                 print(f"[Piper (Local)]: {quick_reply}")
                 journal.log("INTENT_LOCAL", f"Matched '{user_text}'", f"Replied: '{quick_reply}'")
-                
-                set_status(state, "SPEAKING")
+
+                warm = quick_responder.last_kind in QuickResponder.WARM_KINDS
+                set_status(state, "SPEAKING", "warm" if warm else "neutral")
                 speaker.speak(quick_reply)
                 append_and_truncate_message(state, AIMessage(content=quick_reply))
                 
@@ -256,6 +278,8 @@ def main():
             speaker.speak(reply_text)
 
             set_status(state, "ENGAGED")
+            if llm_failed:
+                expression.confused()                       # ??? for a few seconds after saying so
             state["last_interaction_time"] = time.time()
 
         except KeyboardInterrupt:
