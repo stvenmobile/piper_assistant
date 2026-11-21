@@ -109,3 +109,18 @@ def test_reports(mem):
     rid = mem.add_report("daily", "2026-10-10T00:00:00+00:00", "2026-10-11T00:00:00+00:00", "# Daily report - Sunday\n\n## What changed", {"cycles": 3})
     assert api.reports(mem)[0]["title"] == "Daily report - Sunday"
     assert api.report(mem, rid)["data"]["cycles"] == 3
+
+
+def test_research_hold_endpoints(mem):
+    """The Orin's hold: request, see it (and the service honour it), release."""
+    from piper_dashboard.server import Dashboard
+    from piper_research.hold import HoldGate
+    dash = Dashboard(mem.path)
+    assert dash.handle("/api/research/hold", {})["held"] is False
+    r = dash.post("/api/research/hold", {"seconds": 120})
+    assert r["ok"] and r["id"]
+    s = dash.handle("/api/research/hold", {})
+    assert s["held"] and not s["honoured"] and "researching" in s and "phase" in s
+    gate = HoldGate(mem, check_s=0.0, sleep=lambda _: dash.post("/api/research/release"))
+    assert gate.wait()                                   # the service honours it, then it's released
+    assert dash.handle("/api/research/hold", {})["held"] is False

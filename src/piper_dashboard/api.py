@@ -270,6 +270,25 @@ def proposals(mem) -> list[dict]:
             for p in mem.notable() if p["kind"] == "proposal"]
 
 
+def research_hold(mem) -> dict:
+    """For the Orin: is research running, and is it held for a conversation (piper_research/hold.py)?"""
+    from piper_research import hold
+    s = status(mem)
+    return {**hold.state(mem.db), "researching": s["researching"], "phase": s["phase"]}
+
+
+def research_hold_request(db_path, seconds: float = 300, release: bool = False) -> dict:
+    """Hold research for `seconds` (renew by asking again), or release the hold."""
+    import sqlite3
+    from piper_research import hold
+    con = sqlite3.connect(db_path, timeout=10)
+    try:
+        eid = hold.release(con) if release else hold.request(con, seconds)
+        return {"ok": True, "id": eid}
+    finally:
+        con.close()
+
+
 def request(db_path, kind: str, **data) -> bool:
     """A request for the research service (mastery_confirm, mastery_decline, topic_add, topic_reopen,
     proposal_accept): written as an event, carried out by Piper between steps."""

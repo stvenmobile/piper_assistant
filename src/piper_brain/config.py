@@ -133,6 +133,9 @@ DEFAULTS: dict = {
         "windows": [],                    # optional timed windows instead ([] = none), local time; a window
                                           #   may cross midnight ("22:00-06:00"). Env: "01:00-08:00,13:00-14:00"
         "days": "daily",                  # or a list: ["mon", "tue", ...] (the day a window starts on)
+        "mind_url": "http://192.168.1.102:8080",   # piper-mind's dashboard: the Orin holds research there while
+                                          #   someone talks to Piper (piper_brain/research_hold.py); "" = never
+        "hold_s": 300,                    # a hold lasts this long unless renewed (the Orin renews every minute)
         "url": None,                      # Ollama for the reasoning model; None = llm.base_url (the PC)
         "model": "qwen3:30b-a3b",         # research only - conversation keeps llm.model. The 30B (mixture of
                                           #   experts) judges stance clearly better than qwen3:14b; on the

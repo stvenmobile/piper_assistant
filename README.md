@@ -373,13 +373,23 @@ The mood comes from simple, inspectable signals - recognition events, error cond
 
 | Assistant state | Mouth                                                                          | Symbol                     |
 | --------------- | ------------------------------------------------------------------------------ | -------------------------- |
-| IDLE            | neutral, or **sleep** while research is paused (weekdays 10-17) or when told to | none (hidden while asleep) |
+| IDLE            | **blank** - the screen is dark (no burn-in); research carries on               | -                          |
+| woken while research runs | **"Research in progress..."** while she pauses it (below)            | -                          |
 | ENGAGED         | neutral (a smile for 3 s when a known face is welcomed)                        | listening: + / −           |
 | PROCESSING      | neutral                                                                        | thinking: three dots       |
 | SPEAKING        | talk, or **happy talk** for friendly replies (greetings, goodbyes, chat)        | none                       |
 | LLM failed      | neutral                                                                        | confused: ??? for 4 s      |
 
-Speech moves the lips only in the two talk modes (the mouth simulates speech by itself), so Piper never talks while frowning or surprised. Modes: neutral, talk, happytalk, smile, frown, surprise ("Oh!"), sleep, happysleep.
+Speech moves the lips only in the two talk modes (the mouth simulates speech by itself), so Piper never talks while frowning or surprised. Modes: neutral, talk, happytalk, smile, frown, surprise ("Oh!"), sleep, happysleep, research (the message), blank. The mouth also goes blank by itself after 5 minutes without any command.
+
+**Pausing research for a conversation.** Research (on piper-mind) and conversation share one Ollama - QUANTUM's 12 GB RTX 5070 - and it can't hold both models, so a question asked while research ran waited for a model swap (~100 s). Now the wake word holds research:
+
+> **You:** Piper, can I ask you a question?
+> **Piper:** Sure, give me a second to pause my research. *(mouth: "Research in progress...")* ... OK, I'm ready. How can I help?
+
+The Orin asks piper-mind's dashboard to hold research (`POST /api/research/hold`, renewed every minute; `src/piper_brain/research_hold.py`). The research service drops any model call in progress within a second and waits (`src/piper_research/hold.py`); the Orin then unloads the research model on QUANTUM and loads the chat model. After "goodbye" or 20 s of silence the hold is released (`/api/research/release`), the screen goes dark and research carries on. A hold that isn't renewed expires after `research.hold_s` (300 s), so a crashed Orin can't leave research paused. If research isn't running (its weekday pause) she just answers. Settings: `research.mind_url`, `research.hold_s`.
+
+**"Piper, think carefully: ..."** sends that question to the research model with its thinking on - ~10-15 s (plus loading it), better reasoned. Everything else uses the quick chat model.
 
 Testing the mouth by hand (the head link must be running) and by voice:
 
@@ -395,7 +405,8 @@ python3 tools/head_cli.py status thinking      # idle, listening, thinking, conf
 | "Piper, show me your faces"                 | every mouth mode, then every status symbol (~22 s)    |
 | "Piper, test normal talk"                   | says a sentence with the normal talking mouth         |
 | "Piper, test happy talk"                    | says a sentence with the happy talking mouth          |
-| "Piper, go to sleep" / "Piper, wake up"     | sleeps until the next conversation / says she's awake |
+| "Piper, go to sleep" / "Piper, wake up"     | the sleep mouth for 2 minutes, then dark / says she's awake |
+| "Piper, think carefully: <question>"        | answers with the research model, thinking (slower)    |
 
 (While Piper is running she re-sends her own mouth state every minute, so a `head_cli` change lasts until then or until her state changes.)
 

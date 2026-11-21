@@ -46,6 +46,15 @@ class QuickResponder:
                     "Everything is running smoothly.",
                 ])
             ),
+            # Asking for attention: "can I ask you a question?" (main.py pauses research first)
+            (
+                "chat",
+                r"((can|could|may) i ask (you )?(a )?question|are you (there|busy|free))(\s+(piper|paper))?",
+                lambda: random.choice([
+                    "Of course! What would you like to know?",
+                    "Sure, go ahead.",
+                ])
+            ),
             # Status check
             (
                 "status",

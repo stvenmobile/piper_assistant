@@ -12,7 +12,8 @@ vision, test tools).
 The mouth OLED has its own XIAO ESP32-S3 (piper-watch firmware/mouth) on its own USB port. It
 speaks plain text lines, not JSON; the link translates MOUTH messages for it (mouth_lines):
 
-    M<mode>      neutral, talk, happytalk, smile, frown, surprise, sleep, happysleep
+    M<mode>      neutral, talk, happytalk, smile, frown, surprise, sleep, happysleep,
+                 research ("Research in progress..."), blank (dark screen)
     I<symbol>    the status symbol, top right: idle (none), listening, thinking, confused
     L<0..255>    speech loudness (talk modes only; without it the mouth simulates speech)
     D1 / D0      its demo loop on / off
@@ -22,7 +23,8 @@ import json
 
 STATES = ("offline", "idle", "listening", "thinking", "speaking", "sleeping", "error")
 MOODS = ("neutral", "warm", "curious", "uncertain", "concerned", "sleepy")
-MOUTH_MODES = ("neutral", "talk", "happytalk", "smile", "frown", "surprise", "sleep", "happysleep")
+MOUTH_MODES = ("neutral", "talk", "happytalk", "smile", "frown", "surprise", "sleep", "happysleep", "research",
+               "blank")
 MOUTH_SYMBOLS = ("idle", "listening", "thinking", "confused")
 
 # the assistant's states (src/main.py) -> what the ring shows

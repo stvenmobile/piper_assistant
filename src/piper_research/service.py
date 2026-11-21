@@ -43,12 +43,14 @@ from piper_memory import EmbedError, open_memory      # noqa: E402
 from piper_memory.seeds import load_seeds             # noqa: E402
 from piper_research import (Interrupted, LLMError, OllamaChat, Researcher, Schedule, Wikipedia,  # noqa: E402
                             WikiError)
+from piper_research.hold import HoldGate               # noqa: E402
 from piper_research.mastery import apply_requests       # noqa: E402
 from piper_research.rhythm import Curator, Rhythm       # noqa: E402
 from piper_research.papers import ArXiv, OpenAlex       # noqa: E402
 from piper_research.sep import SEP                      # noqa: E402
 
 stop = False
+GATE = None          # HoldGate: research waits while someone is talking to Piper (piper_research/hold.py)
 
 
 def _stop(*_):
@@ -62,6 +64,8 @@ def _stop(*_):
 def nap(seconds: float):
     end = time.monotonic() + seconds
     while not stop and time.monotonic() < end:
+        if GATE is not None and GATE.wait():       # a conversation started: say so, wait it out
+            return
         time.sleep(min(1.0, end - time.monotonic()))
 
 
@@ -246,6 +250,8 @@ def main():
     llm = OllamaChat(cfg["url"] or CONFIG["llm"]["base_url"], cfg["model"], temperature=cfg["temperature"],
                      num_ctx=cfg["num_ctx"], think=cfg["think"], keep_alive=cfg["keep_alive"],
                      timeout=cfg["timeout_s"], max_tokens=cfg["max_tokens"])
+    global GATE
+    GATE = llm.gate = HoldGate(mem, should_stop=lambda: stop)   # Piper's conversations come first
     wiki = Wikipedia(ROOT_DIR / "data" / "research" / "wiki")
     sep = SEP(ROOT_DIR / "data" / "research" / "sep") if cfg["sep_pages"] > 0 else None
     papers = []

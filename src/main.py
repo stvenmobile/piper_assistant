@@ -18,8 +18,10 @@ os.environ["ORT_LOGGING_LEVEL"] = "3"
 from langchain_core.messages import HumanMessage, AIMessage
 
 from piper_audio.listener import PiperListener
+from piper_brain import deep_think
 from piper_brain.config import CONFIG
 from piper_brain.quick_responder import QuickResponder
+from piper_brain.research_hold import ResearchHold, just_attention
 from piper_brain.supervisor import PiperSupervisor, PiperBrainState
 from piper_brain.state import AgentState, create_initial_state, append_and_truncate_message
 from piper_brain.journal import ActivityJournal
@@ -36,6 +38,7 @@ running = True
 
 head = HeadClient()        # the light ring on piper-watch (silently does nothing if it isn't there)
 expression = Expression(head)   # the mouth OLED: expression + status symbol (piper_head/expression.py)
+research = ResearchHold()  # holds research on piper-mind while someone talks to Piper
 
 
 def set_status(state: AgentState, status: str, mood: str = "neutral"):
@@ -43,6 +46,8 @@ def set_status(state: AgentState, status: str, mood: str = "neutral"):
     state["status"] = status
     head.assistant_state(status, mood)
     expression.assistant(status, mood)
+    if status == "IDLE":
+        research.release()                  # the conversation is over: research carries on
 
 
 def make_speaker():
@@ -132,10 +137,32 @@ def main():
 
     face_test = FaceTest(expression, say)       # "Piper, smile", "show me your faces", ...
 
+    def pause_research(user_text: str) -> bool:
+        """A conversation is starting: hold research on piper-mind and get the chat model loaded.
+        If research was running, say so while it pauses ("Research in progress..." on the mouth).
+        Returns True if that already answered them (they only wanted Piper's attention)."""
+        was_running = research.active()
+        if not research.start():
+            return False                            # piper-mind not reachable: carry on as before
+        if not was_running:                         # nothing to wait for: load the chat model quietly
+            threading.Thread(target=research.swap_in_chat_model, daemon=True).start()
+            return False
+        journal.log("RESEARCH", "Held for a conversation")
+        expression.research_notice(True)
+        say("Sure, give me a second to pause my research.")
+        research.wait_ready()
+        expression.research_notice(False)
+        if just_attention(user_text):
+            say("OK, I'm ready. How can I help?", "warm")
+            return True
+        return False
+
     def engage(name: str):
         """Piper has just greeted / met `name`: listen for them without the wake word."""
         nonlocal active_user
         active_user = name
+        if research.start():                        # she'll likely be asked something: hold research
+            threading.Thread(target=research.swap_in_chat_model, daemon=True).start()
         set_status(state, "ENGAGED")
         expression.show(mode="smile", seconds=3.0)  # glad to see a known face
         state["last_interaction_time"] = time.time()
@@ -179,6 +206,11 @@ def main():
                 if not user_text:
                     # Only the wake-word was spoken ("Hi Piper")
                     user_text = raw_text
+
+                # research on piper-mind pauses for the conversation (and says so if it was running)
+                if pause_research(user_text):
+                    state["last_interaction_time"] = time.time()
+                    continue
             else:
                 print("[Listener] In conversation (listening for follow-up)...")
                 user_text = listener.listen_command_window(max_duration=6.0, silence_timeout=1.0)
@@ -247,6 +279,24 @@ def main():
                     state["last_interaction_time"] = time.time()
                 continue
 
+            # 3b. "Piper, think carefully: ..." -> the research model, thinking (slower, better reasoned)
+            deep_q = deep_think.question(user_text)
+            if deep_q:
+                say("Let me think about that carefully.")
+                set_status(state, "PROCESSING")
+                journal.log("INTENT_DEEP", f"Thinking carefully about '{deep_q}'")
+                deep_reply = deep_think.answer(deep_q, state["messages"][:-1], supervisor.system_prompt.content)
+                if deep_reply:
+                    print(f"[Piper (Deep)]: {deep_reply}")
+                    journal.log("REPLY_DEEP", f"Generated: '{deep_reply}'")
+                    set_status(state, "SPEAKING")
+                    speaker.speak(deep_reply)
+                    append_and_truncate_message(state, AIMessage(content=deep_reply))
+                    set_status(state, "ENGAGED")
+                    state["last_interaction_time"] = time.time()
+                    continue
+                user_text = deep_q                     # the research model isn't there: ask as usual
+
             # 4. LangGraph Supervisor (Remote Ollama)
             set_status(state, "PROCESSING")
             print(f"[Piper (Supervisor Processing)]: Escalating '{user_text}'...")
@@ -289,6 +339,7 @@ def main():
 
     print("--- Shutting Down Piper Assistant ---")
     journal.log("SYSTEM", "Piper assistant terminated.")
+    research.release()
     speaker.speak("Goodbye.")
     sys.exit(0)
 

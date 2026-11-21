@@ -1,6 +1,4 @@
 """The mouth OLED: its messages, the link's translation, the expression rules, the test phrases."""
-from datetime import datetime
-
 import pytest
 
 from piper_brain.quick_responder import QuickResponder
@@ -91,14 +89,6 @@ class FakeClient:
         return True
 
 
-class FakeRhythm:
-    def __init__(self):
-        self.p = "explore"
-
-    def phase(self, now):
-        return self.p
-
-
 class Clock:
     def __init__(self):
         self.t = 0.0
@@ -109,12 +99,11 @@ class Clock:
 
 @pytest.fixture
 def ex():
-    e = Expression(FakeClient(), rhythm=FakeRhythm(), clock=Clock(), now=lambda: datetime(2026, 11, 20, 12))
-    return e
+    return Expression(FakeClient(), clock=Clock())
 
 
 @pytest.mark.parametrize("status, mood, wanted", [
-    ("IDLE", "neutral", ("neutral", "idle")),
+    ("IDLE", "neutral", ("blank", "idle")),
     ("ENGAGED", "neutral", ("neutral", "listening")),
     ("PROCESSING", "neutral", ("neutral", "thinking")),
     ("SPEAKING", "neutral", ("talk", "idle")),
@@ -127,22 +116,35 @@ def test_states_map_to_the_mouth(ex, status, mood, wanted):
     assert ex.client.sent[-1] == wanted
 
 
-def test_sleeps_when_idle_and_research_is_paused(ex):
-    ex.rhythm.p = "pause"
-    ex.assistant("IDLE")
-    assert ex.wanted() == ("sleep", "idle")
+def test_told_to_sleep_then_the_screen_goes_dark(ex):
     ex.assistant("ENGAGED")
-    assert ex.wanted() == ("neutral", "listening")
-
-
-def test_told_to_sleep_until_the_next_conversation(ex):
-    ex.assistant("ENGAGED")
-    ex.sleep()
+    ex.sleep(seconds=120)
     ex.assistant("IDLE")
     assert ex.wanted()[0] == "sleep"
+    ex.clock.t = 121
+    ex.tick()
+    assert ex.wanted()[0] == "blank"
+    assert ex.client.sent[-1] == ("blank", "idle")
+
+
+def test_a_conversation_wakes_her(ex):
+    ex.sleep(seconds=120)
     ex.assistant("ENGAGED")                  # "Piper, wake up"
     ex.assistant("IDLE")
-    assert ex.wanted()[0] == "neutral"
+    assert ex.wanted()[0] == "blank"
+
+
+def test_research_notice_replaces_the_mouth_until_she_is_ready(ex):
+    ex.assistant("ENGAGED")
+    ex.research_notice(True)
+    assert ex.wanted() == ("research", "idle")
+    ex.assistant("SPEAKING")                 # "give me a second to pause my research" - still the message
+    assert ex.wanted() == ("research", "idle")
+    ex.research_notice(False)
+    assert ex.wanted() == ("talk", "idle")
+    ex.research_notice(True)
+    ex.assistant("IDLE")                     # nobody talking any more: no message, dark screen
+    assert ex.wanted() == ("blank", "idle")
 
 
 def test_a_shown_face_lasts_its_time_then_goes_back(ex):

@@ -47,6 +47,8 @@ class Dashboard:
             mem = self.store()
             if route == "/api/status":
                 return api.status(mem)
+            if route == "/api/research/hold":
+                return api.research_hold(mem)
             if route == "/api/events":
                 return api.events(mem, since=int(one("since", "0") or 0))
             if route == "/api/topics":
@@ -83,6 +85,10 @@ class Dashboard:
 
     def post(self, route: str, body: dict | None = None):
         body = body or {}
+        if route == "/api/research/hold":                                # body: {"seconds": 300} - from the Orin
+            return api.research_hold_request(self.path, float(body.get("seconds", 300)))
+        if route == "/api/research/release":
+            return api.research_hold_request(self.path, release=True)
         m = re.fullmatch(r"/api/notable/(\d+)/reviewed", route)
         if m:
             return {"ok": api.mark_reviewed(self.path, int(m.group(1)))}
