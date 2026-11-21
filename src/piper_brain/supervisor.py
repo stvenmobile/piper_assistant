@@ -67,6 +67,9 @@ class PiperSupervisor:
             keep_alive=llm_cfg.get("keep_alive", "2h"),   # Ollama unloads idle models after 5 min,
         )                                                 #   and reloading took ~80 s on the PC
         self.system_prompt = SystemMessage(content=load_system_prompt())
+        # build the graph first: it used to be built at the end of the warm-up, so a question asked
+        # while the model was still loading crashed Piper ('PiperSupervisor' has no attribute 'graph')
+        self.graph = self._build_graph()
         threading.Thread(target=self._warm_up, daemon=True).start()
 
     def _warm_up(self):
@@ -78,7 +81,6 @@ class PiperSupervisor:
             print(f"[Supervisor] Model warm ({time.time() - t0:.1f} s)")
         except Exception as e:
             print(f"[Supervisor] Warm-up failed (is Ollama reachable?): {e}")
-        self.graph = self._build_graph()
 
     def evaluate_audio_event_node(self, state: PiperBrainState) -> PiperBrainState:
         text = (state.get("input_text") or "").strip()
