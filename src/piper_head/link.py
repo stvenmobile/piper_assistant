@@ -71,6 +71,11 @@ class HeadLink:
             self.mouth_last["mode"] = msg["mode"]
         if msg.get("symbol") in protocol.MOUTH_SYMBOLS:
             self.mouth_last["symbol"] = msg["symbol"]
+            # the mouth stops talking when it starts listening (its firmware does the same)
+            if msg["symbol"] == "listening" and "mode" not in msg:
+                talking = {"talk": "neutral", "happytalk": "smile"}
+                if self.mouth_last.get("mode") in talking:
+                    self.mouth_last["mode"] = talking[self.mouth_last["mode"]]
         return protocol.mouth_lines(msg)
 
     def mouth_on_connect(self) -> list[str]:

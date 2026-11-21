@@ -45,6 +45,19 @@ def test_mouth_mode_and_symbol_are_remembered_for_reconnects():
     assert link.to_mouth(protocol.face("idle")) == []
 
 
+def test_listening_stops_talking():
+    link = HeadLink()
+    link.to_mouth(protocol.mouth(mode="talk"))
+    link.to_mouth(protocol.mouth(symbol="listening"))
+    assert link.mouth_last["mode"] == "neutral"
+    link.to_mouth(protocol.mouth(mode="happytalk"))
+    link.to_mouth(protocol.mouth(symbol="listening"))
+    assert link.mouth_last["mode"] == "smile"
+    link.to_mouth(protocol.mouth(mode="frown"))
+    link.to_mouth(protocol.mouth(symbol="listening"))
+    assert link.mouth_last["mode"] == "frown"
+
+
 def _ports(monkeypatch, ports):
     from serial.tools import list_ports
     from types import SimpleNamespace as P
