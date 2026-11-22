@@ -35,6 +35,10 @@ PRE_ROLL_CHUNKS = 8
 # How long a follow-up window waits for speech before main.py opens a new one. Each re-open is a short gap
 # with the microphone closed, so fewer of them (8 s, was 4) means fewer chances to lose a sentence's start.
 FOLLOW_UP_WAIT_S = 8.0
+# When is a sentence over? After this much quiet (1.0 s cut people off at a thinking pause: "I want...").
+END_SILENCE_S = 1.8
+# The longest one utterance may run, counted from when the voice starts (was 6 s, from when listening started).
+MAX_UTTERANCE_S = 20.0
 
 
 class PiperListener:
@@ -120,7 +124,7 @@ class PiperListener:
         pattern = r"^(hey|hi|hello)?[,\s]*" + WAKE_NAMES + r"\b[,\.\?!]*\s*"
         return re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
 
-    def listen_for_wake_word_and_command(self, max_command_duration: float = 6.0, silence_timeout: float = 1.0, idle_timeout: float = 3.0) -> str:
+    def listen_for_wake_word_and_command(self, max_command_duration: float = MAX_UTTERANCE_S, silence_timeout: float = END_SILENCE_S, idle_timeout: float = 3.0) -> str:
         """
         Listens in non-blocking windows for wake-word activation.
         Yields control back every `idle_timeout` seconds if no speech is present.
@@ -142,6 +146,7 @@ class PiperListener:
                 if rms > self.energy_threshold:
                     if not is_speaking:
                         is_speaking = True
+                        speech_start = time.time()
                         speech_frames.extend(pre_roll)
                     silence_start = None
                     speech_frames.append(chunk)
@@ -156,7 +161,7 @@ class PiperListener:
 
                 if not is_speaking and (time.time() - loop_start > idle_timeout):
                     return ""
-                if is_speaking and (time.time() - loop_start > max_command_duration):
+                if is_speaking and (time.time() - speech_start > max_command_duration):
                     break
 
         if not speech_frames or len(speech_frames) < 4:
@@ -178,7 +183,7 @@ class PiperListener:
         # Return full text so main.py handles chime and state transition
         return heard_text
 
-    def listen_command_window(self, max_duration: float = 6.0, silence_timeout: float = 1.0) -> str:
+    def listen_command_window(self, max_duration: float = MAX_UTTERANCE_S, silence_timeout: float = END_SILENCE_S) -> str:
         """Captures voice command follow-up during active engagement."""
         chunk_samples = int(self.sample_rate * 0.1)
         pre_roll = deque(maxlen=PRE_ROLL_CHUNKS)
@@ -197,6 +202,7 @@ class PiperListener:
                     if not is_speaking:
                         is_speaking = True
                         print("[Listener] Follow-up voice detected, recording...")
+                        speech_start = time.time()
                         speech_frames.extend(pre_roll)
                     silence_start = None
                     speech_frames.append(chunk)
@@ -209,7 +215,7 @@ class PiperListener:
                 else:
                     pre_roll.append(chunk)
 
-                if is_speaking and (time.time() - start_time > max_duration):
+                if is_speaking and (time.time() - speech_start > max_duration):
                     break
                 if not is_speaking and (time.time() - start_time > FOLLOW_UP_WAIT_S):
                     return ""

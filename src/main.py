@@ -147,7 +147,7 @@ def main():
         set_status(state, "ENGAGED", mood)
 
     def hear() -> str:
-        text = listener.listen_command_window(max_duration=8.0, silence_timeout=1.0)
+        text = listener.listen_command_window()
         text = listener._strip_wake_word(text) if text else ""
         if text:
             print(f"[User]: {text}")
@@ -217,7 +217,7 @@ def main():
                     engage(name)
                     continue
 
-                raw_text = listener.listen_for_wake_word_and_command(max_command_duration=6.0)
+                raw_text = listener.listen_for_wake_word_and_command()
                 if not raw_text:
                     continue
 
@@ -239,7 +239,7 @@ def main():
                     continue
             else:
                 print("[Listener] In conversation (listening for follow-up)...")
-                user_text = listener.listen_command_window(max_duration=6.0, silence_timeout=1.0)
+                user_text = listener.listen_command_window()
                 if not user_text:
                     continue
                 state["last_interaction_time"] = time.time()
