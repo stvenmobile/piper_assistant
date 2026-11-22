@@ -4,6 +4,7 @@ Spoken test phrases for the mouth OLED - answered locally, no language model:
     "Piper, smile" / "frown" / "look surprised"   that face for 5 s, then back to normal
     "Piper, show me your faces"                   every mouth mode and status symbol once
     "Piper, go to sleep"                          the sleep mouth until the next conversation
+                                                  (also "you can go to sleep now", "goodnight", ...)
     "Piper, wake up"                              (the wake word already woke her) - says so
     "Piper, test normal talk"                     a sentence in the plain talking mouth
     "Piper, test happy talk"                      a sentence in the happy talking mouth
@@ -20,7 +21,12 @@ FACE_SECONDS = 5.0
 STEP_SECONDS = 2.0
 
 _CLEAN = re.compile(r"[^a-z\s]")
-_WAKE = re.compile(r"^(hey |hi |ok |okay )?(piper|paper)\s+|\s+(piper|paper)$")
+_WAKE = re.compile(r"^(hey |hi |ok |okay )?(piper|paper|hyper|viper)\s+|\s+(piper|paper|hyper|viper)$")
+# "go to sleep", and the ways people actually say it: "you can go to sleep now", "time to go to bed",
+# "goodnight", "OK, sleep now"
+_SLEEP = re.compile(r"((ok|okay|alright|you can|you may|you should|why don t you|it s|its|it is)\s+)*"
+                    r"(go to sleep|go to bed|time to sleep|time for bed|time to go to (sleep|bed)|sleep|good ?night)"
+                    r"(\s+(now|then|for now|for a while))?")
 
 FACES = {
     "smile": "smile",
@@ -58,7 +64,7 @@ class FaceTest:
         if re.fullmatch(r"show me your (faces?|expressions?|moods?)", t):
             self.show_all()
             return "engaged"
-        if re.fullmatch(r"(go to sleep|go to bed|time to sleep|time for bed)", t):
+        if _SLEEP.fullmatch(t):
             self.say("Goodnight.")
             self.expression.sleep()
             return "sleep"
