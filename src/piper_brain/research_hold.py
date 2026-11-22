@@ -24,10 +24,10 @@ RENEW_S = 60.0
 
 # what someone says when they only want Piper's attention (no question yet)
 _ATTENTION = re.compile(
-    r"^\s*(?:(?:hey|hi|hello|ok|okay)\s*)?(?:piper|paper)?\s*[,.!?]*\s*"
+    r"^\s*(?:(?:hey|hi|hello|ok|okay)\s*)?(?:piper|paper|hyper|viper)?\s*[,.!?]*\s*"
     r"(?:(?:can|could|may)\s+i\s+ask\s+(?:you\s+)?(?:a\s+)?question"
     r"|are\s+you\s+(?:there|busy|free)|(?:have\s+you\s+)?got\s+a\s+(?:minute|second|moment)"
-    r"|hey|hi|hello|good\s+(?:morning|afternoon|evening))?\s*(?:piper|paper)?\s*[,.!?]*\s*$",
+    r"|hey|hi|hello|good\s+(?:morning|afternoon|evening))?\s*(?:piper|paper|hyper|viper)?\s*[,.!?]*\s*$",
     re.IGNORECASE)
 
 

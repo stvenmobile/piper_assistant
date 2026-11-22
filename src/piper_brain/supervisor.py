@@ -56,6 +56,24 @@ def load_system_prompt() -> str:
     return base_dna + voice_rules
 
 
+_LIST_MARK = re.compile(r"^\s*(?:[-*\u2022]+|\d+[.)]|#+)\s*", re.MULTILINE)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+|(?<=[.!?][\"')\]])\s+")
+
+
+def spoken_reply(text: str, max_sentences: int = 3) -> str:
+    """What Piper says aloud: no markdown, no list numbering, one paragraph, and at most
+    `max_sentences` complete sentences (a reply cut off by the token cap loses its unfinished end)."""
+    t = _LIST_MARK.sub("", text or "").replace("*", "").replace("#", "")
+    t = " ".join(t.split())
+    sentences = [s for s in _SENTENCE_END.split(t) if s.strip()]
+    if not sentences:
+        return t
+    kept = sentences[:max_sentences]
+    if len(kept) > 1 and not re.search(r"[.!?][\"')\]]*$", kept[-1]):
+        kept = kept[:-1]                               # drop a sentence the token cap cut off
+    return " ".join(kept).strip()
+
+
 class PiperSupervisor:
     def __init__(self):
         llm_cfg = CONFIG["llm"]
@@ -65,7 +83,10 @@ class PiperSupervisor:
             temperature=llm_cfg.get("temperature", 0.4),
             base_url=llm_cfg["base_url"],
             keep_alive=llm_cfg.get("keep_alive", "2h"),   # Ollama unloads idle models after 5 min,
-        )                                                 #   and reloading took ~80 s on the PC
+                                                          #   and reloading took ~80 s on the PC
+            num_predict=llm_cfg.get("reply_max_tokens", 160),   # spoken replies stay short (and fast)
+        )
+        self.max_sentences = llm_cfg.get("reply_max_sentences", 3)
         self.system_prompt = SystemMessage(content=load_system_prompt())
         # build the graph first: it used to be built at the end of the warm-up, so a question asked
         # while the model was still loading crashed Piper ('PiperSupervisor' has no attribute 'graph')
@@ -159,7 +180,7 @@ class PiperSupervisor:
 
         try:
             response = self.llm.invoke(payload)
-            clean_reply = response.content.replace("*", "").replace("#", "").strip()
+            clean_reply = spoken_reply(response.content, self.max_sentences)
             state["output_text"] = clean_reply
             state["messages"].append(AIMessage(content=clean_reply))
         except Exception as e:

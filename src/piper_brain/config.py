@@ -34,6 +34,10 @@ DEFAULTS: dict = {
         "model": "llama3.2:latest",       # = the 3B model (tag as installed in Ollama)
         "temperature": 0.4,
         "keep_alive": "2h",               # how long Ollama keeps the model loaded between requests
+        # spoken replies: the model ignored "1 to 2 sentences" and once spoke for 2 3/4 minutes,
+        # numbered lists and all. A hard cap on what it may generate, then the first few sentences.
+        "reply_max_tokens": 160,
+        "reply_max_sentences": 3,
     },
     "audio": {
         # Substrings of the sounddevice names (run `python3 src/piper_audio/devices.py` to list

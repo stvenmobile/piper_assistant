@@ -10,6 +10,7 @@ Piper Assistant: State-driven interactive runtime loop with LangGraph Supervisor
 import sys
 import os
 import time
+import re
 import select
 import threading
 
@@ -245,6 +246,17 @@ def main():
                 state["last_interaction_time"] = time.time()
 
             if not running or not user_text:
+                continue
+
+            # only her name ("Piper.", "Hey Piper") - or "can I ask you a question?": no question yet, so
+            # don't send it to the model (it guessed: "Paper." -> "you're looking for a paper on a topic");
+            # the mouth already shows she's listening
+            if just_attention(user_text):
+                print(f"\n[User]: {user_text}   (just her attention - listening for the question)")
+                rest = listener._strip_wake_word(user_text)
+                if rest:                                    # "can I ask you a question?", "good evening"
+                    say("Sure, go ahead." if re.search(r"question|minute|second|moment", rest, re.I) else "Yes?", "warm")
+                state["last_interaction_time"] = time.time()
                 continue
 
             print(f"\n[User]: {user_text}")
