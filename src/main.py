@@ -172,7 +172,11 @@ def main():
     kb_thread = threading.Thread(target=keyboard_monitor, args=(journal,), daemon=True)
     kb_thread.start()
 
+    # the greeting moves the mouth too (it bypassed set_status, so the mouth stayed dark); then back
+    # to IDLE (dark), since nobody is talking to her yet
+    set_status(state, "SPEAKING", "warm")
     speaker.speak("Piper assistant is online and ready.")
+    set_status(state, "IDLE")
 
     while running:
         try:
@@ -197,7 +201,7 @@ def main():
 
                 print("\n[State Transition] IDLE -> ENGAGED (Wake word detected)")
                 journal.log("STATE", "IDLE -> ENGAGED", f"Wake-word triggered with: '{raw_text}'")
-                speaker.play_chime()
+                # (no chime: the mouth's listening symbol shows she heard her name)
                 set_status(state, "ENGAGED")
                 state["last_interaction_time"] = time.time()
 

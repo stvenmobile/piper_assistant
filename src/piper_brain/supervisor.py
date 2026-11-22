@@ -132,7 +132,11 @@ class PiperSupervisor:
             state["output_text"] = "I'm listening."
             return state
 
-        state["messages"].append(HumanMessage(content=text))
+        # main.py has usually added this turn already: adding it twice made the model see every question
+        # repeated ("you're testing my loop-breaking skills")
+        last = state["messages"][-1] if state["messages"] else None
+        if not (isinstance(last, HumanMessage) and last.content == text):
+            state["messages"].append(HumanMessage(content=text))
 
         current_time_str = get_current_datetime_str()
         weather_summary = get_local_weather()          # cached for weather.cache_minutes

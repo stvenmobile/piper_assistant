@@ -92,17 +92,17 @@ DEFAULTS: dict = {
             "port": "auto",               # "auto" = the adapter's CH343 USB ID, else e.g. /dev/ttyACM0
             "baud": 1000000,
             "pan_id": 1, "tilt_id": 2,
-            "pan_dir": -1, "tilt_dir": -1,    # raw servo direction -> robot convention (test stand)
-            "pan_limits": [-90, 90],      # the tilt cable's loop
-            "tilt_limits": [-70, 6.3],    # head about -24 .. +25 (also stored in the tilt servo)
-            "home": [0, -33],             # straight ahead, head level
+            "pan_dir": -1, "tilt_dir": -1,    # raw servo direction -> robot convention (checked on the robot 2026-11-22)
+            "pan_limits": [-60, 60],      # tested on the robot 2026-11-22: no strain on the head's cables
+            "tilt_limits": [-16, 50],     # robot 2026-11-22: 0 = head level; -19 touches nose-down (also stored in the servo)
+            "home": [0, 0],               # straight ahead, head level (the servos' centres were set there)
             "speed": 1500,                # servo steps/s (~130 deg/s) and acceleration (x100 steps/s^2)
             "acc": 40,
             "rate_hz": 10,                # follow updates per second
             "gain": 0.6,                  # fraction of the error corrected per update
             "deadband_deg": 2.5,          # don't chase errors smaller than this
             "max_step_deg": 12,
-            "tilt_ratio": 1.6,            # tilt servo degrees per degree of head tilt (near level)
+            "tilt_ratio": 1.0,            # tilt servo degrees per degree of head tilt near level (robot linkage ~1; test stand was 1.6)
             "home_after_s": 4.0,          # nobody in view this long -> look straight ahead again
         },
     },

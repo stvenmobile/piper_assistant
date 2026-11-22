@@ -24,7 +24,18 @@ HARDWARE_SAMPLE_RATE = AUDIO_CFG["hardware_rate"]
 WHISPER_SAMPLE_RATE = AUDIO_CFG["whisper_rate"]
 
 # Common wake word variations and phonetic misspellings from Whisper
-WAKE_WORDS = ["piper", "hey piper", "hi piper", "paper", "hey paper", "hi paper"]
+# Whisper often hears "Piper" as one of these (on the robot's speakerphone: "Hyper."). Matched as whole words,
+# so "hyperactive" or "paperwork" don't wake her.
+WAKE_NAMES = r"(piper|paper|hyper|viper|pipeer|piber)"
+WAKE_RE = re.compile(r"\b" + WAKE_NAMES + r"\b", re.IGNORECASE)
+
+# Audio kept from just BEFORE the voice crosses the threshold (0.1 s chunks): the soft start of a sentence
+# ("Tell me...") is often under it. 0.2-0.3 s clipped the first words; 0.8 s keeps them.
+PRE_ROLL_CHUNKS = 8
+# How long a follow-up window waits for speech before main.py opens a new one. Each re-open is a short gap
+# with the microphone closed, so fewer of them (8 s, was 4) means fewer chances to lose a sentence's start.
+FOLLOW_UP_WAIT_S = 8.0
+
 
 class PiperListener:
     def __init__(
@@ -106,7 +117,7 @@ class PiperListener:
 
     def _strip_wake_word(self, text: str) -> str:
         """Removes the wake word prefix from the prompt."""
-        pattern = r"^(hey|hi|hello)?\s*(piper|paper)[,\.\?!]*\s*"
+        pattern = r"^(hey|hi|hello)?[,\s]*" + WAKE_NAMES + r"\b[,\.\?!]*\s*"
         return re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
 
     def listen_for_wake_word_and_command(self, max_command_duration: float = 6.0, silence_timeout: float = 1.0, idle_timeout: float = 3.0) -> str:
@@ -116,7 +127,7 @@ class PiperListener:
         """
         chunk_duration = 0.1
         chunk_samples = int(self.sample_rate * chunk_duration)
-        pre_roll = deque(maxlen=3)
+        pre_roll = deque(maxlen=PRE_ROLL_CHUNKS)
         speech_frames = []
         is_speaking = False
         silence_start = None
@@ -159,7 +170,7 @@ class PiperListener:
         print(f"[Listener Heard]: \"{heard_text}\"")
 
         clean_lower = heard_text.lower()
-        wake_detected = any(w in clean_lower for w in WAKE_WORDS)
+        wake_detected = WAKE_RE.search(clean_lower) is not None
 
         if not wake_detected:
             return ""
@@ -170,7 +181,7 @@ class PiperListener:
     def listen_command_window(self, max_duration: float = 6.0, silence_timeout: float = 1.0) -> str:
         """Captures voice command follow-up during active engagement."""
         chunk_samples = int(self.sample_rate * 0.1)
-        pre_roll = deque(maxlen=2)
+        pre_roll = deque(maxlen=PRE_ROLL_CHUNKS)
         speech_frames = []
         is_speaking = False
         silence_start = None
@@ -200,7 +211,7 @@ class PiperListener:
 
                 if is_speaking and (time.time() - start_time > max_duration):
                     break
-                if not is_speaking and (time.time() - start_time > 4.0):
+                if not is_speaking and (time.time() - start_time > FOLLOW_UP_WAIT_S):
                     return ""
 
         if not speech_frames:
