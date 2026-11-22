@@ -15,6 +15,28 @@ import threading
 
 os.environ["ORT_LOGGING_LEVEL"] = "3"
 
+
+class _Timestamped:
+    """Prefix every console line with the time (HH:MM:SS.mmm), to see where the latency goes."""
+    def __init__(self, stream):
+        self.stream, self.at_line_start = stream, True
+
+    def write(self, text):
+        out = []
+        for part in text.splitlines(keepends=True):
+            if self.at_line_start and part.strip():
+                t = time.time()
+                out.append(time.strftime("%H:%M:%S", time.localtime(t)) + f".{int(t % 1 * 1000):03d} ")
+            out.append(part)
+            self.at_line_start = part.endswith("\n")
+        return self.stream.write("".join(out))
+
+    def __getattr__(self, name):                # flush, isatty, fileno ... from the real stream
+        return getattr(self.stream, name)
+
+
+sys.stdout = _Timestamped(sys.stdout)
+
 from langchain_core.messages import HumanMessage, AIMessage
 
 from piper_audio.listener import PiperListener
@@ -289,9 +311,10 @@ def main():
                 say("Let me think about that carefully.")
                 set_status(state, "PROCESSING")
                 journal.log("INTENT_DEEP", f"Thinking carefully about '{deep_q}'")
+                t_deep = time.time()
                 deep_reply = deep_think.answer(deep_q, state["messages"][:-1], supervisor.system_prompt.content)
                 if deep_reply:
-                    print(f"[Piper (Deep)]: {deep_reply}")
+                    print(f"[Piper (Deep, {time.time() - t_deep:.1f} s)]: {deep_reply}")
                     journal.log("REPLY_DEEP", f"Generated: '{deep_reply}'")
                     set_status(state, "SPEAKING")
                     speaker.speak(deep_reply)
@@ -317,12 +340,13 @@ def main():
                 "introspection_result": None
             }
 
+            t_llm = time.time()
             result = supervisor.process(brain_state)
             reply_text = result.get("output_text") or "I processed your request."
             state["messages"] = result.get("messages", state["messages"])
             llm_failed = bool(result.get("error"))
 
-            print(f"[Piper (LLM Reply)]: {reply_text}")
+            print(f"[Piper (LLM Reply, {time.time() - t_llm:.1f} s)]: {reply_text}")
             journal.log("REPLY_LLM", f"Generated: '{reply_text}'")
 
             if llm_failed:                                  # e.g. Ollama unreachable
