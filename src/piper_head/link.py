@@ -39,8 +39,9 @@ FORWARDED = {"FACE", "CONFIG", "LOOK", "MOUTH"}
 class HeadLink:
     """The link's logic, without any I/O: feed it lines, it returns what to send where."""
 
-    def __init__(self):
+    def __init__(self, mouth_style: str | None = None):
         self.seq = 0
+        self.mouth_style = mouth_style  # "lips" / "spectrum", sent first whenever the mouth connects
         self.last = {}                  # last FACE / CONFIG sent, by type
         self.status = None              # last STATUS from the ESP32
         self.mouth_last = {}            # the mouth's last mode / symbol
@@ -79,8 +80,9 @@ class HeadLink:
         return protocol.mouth_lines(msg)
 
     def mouth_on_connect(self) -> list[str]:
-        """Mouth (re)connected: restore its mode and symbol."""
-        return protocol.mouth_lines({"t": "MOUTH", **self.mouth_last})
+        """Mouth (re)connected: set its style, restore its mode and symbol."""
+        style = [f"S{self.mouth_style}"] if self.mouth_style in ("lips", "spectrum") else []
+        return style + protocol.mouth_lines({"t": "MOUTH", **self.mouth_last})
 
     def from_device(self, msg: dict) -> tuple[list[dict], list[dict]]:
         """An ESP32 message -> (messages back to the ESP32, messages for the clients)."""
@@ -175,7 +177,7 @@ class Service:
         self.cfg = cfg
         self.verbose = verbose
         self.drop_warned = False              # "not sent" said once per disconnection, not per message
-        self.core = HeadLink()
+        self.core = HeadLink(CONFIG["head"].get("mouth_style"))
         self.lock = threading.Lock()
         self.write_lock = threading.Lock()    # heartbeats and clients write from different threads
         self.serial = None

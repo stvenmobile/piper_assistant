@@ -43,6 +43,14 @@ def test_mouth_mode_and_symbol_are_remembered_for_reconnects():
     assert link.to_mouth(protocol.face("idle")) == []
 
 
+def test_mouth_style_is_sent_first_on_connect():
+    assert HeadLink("spectrum").mouth_on_connect() == ["Sspectrum"]
+    link = HeadLink("lips")
+    link.to_mouth(protocol.mouth(mode="smile"))
+    assert link.mouth_on_connect() == ["Slips", "Msmile"]
+    assert HeadLink("bogus").mouth_on_connect() == []
+
+
 def test_listening_stops_talking():
     link = HeadLink()
     link.to_mouth(protocol.mouth(mode="talk"))
