@@ -141,12 +141,22 @@ def open_serial(port: str, baud: int):
     return ser
 
 
+_REPORT = re.compile(r"^mouth: (LIVE|DEMO), mode ")
+
+
+def is_mouth_report(line) -> bool:
+    """The mouth's full state line ("mouth: LIVE, mode 0 neutral, ..."), not "mouth: LIVE" or "mouth: unknown ..."."""
+    if isinstance(line, bytes):
+        line = line.decode(errors="replace")
+    return bool(_REPORT.match(line.strip()))
+
+
 def mouth_style_of(line) -> str | None:
     """The style in a mouth report ("mouth: LIVE, mode 0 neutral, ..., style spectrum, contrast 160"), None if the
     firmware has no styles (older than the spectrum mouth) or it isn't a report."""
     if isinstance(line, bytes):
         line = line.decode(errors="replace")
-    m = re.search(r"\bstyle (\w+)", line) if line.startswith("mouth:") else None
+    m = re.search(r", style (\w+)", line) if is_mouth_report(line) else None
     return m.group(1) if m else None
 
 
@@ -344,17 +354,18 @@ class Service:
                 except Exception:
                     return None
                 for line in buf.split(b"\n"):
-                    if line.strip().startswith(b"mouth:"):
+                    if is_mouth_report(line):
                         return line.strip()
         return None
 
     def log_mouth_style(self, line: bytes):
         want, have = self.core.mouth_style, mouth_style_of(line)
+        print(f"[HeadLink] Mouth says: {line.decode(errors='replace')}")
         if have is None:
             print(f"[HeadLink] Mouth firmware has no styles - flash the current piper-watch mouth firmware "
                   f"(wanted {want or 'its default'})")
         elif want in ("lips", "spectrum") and have != want:
-            print(f"[HeadLink] Mouth style is {have}, but head.mouth_style asks for {want} - it didn't take")
+            print(f"[HeadLink] Mouth reports style {have}, but head.mouth_style asks for {want} - it didn't take")
         else:
             print(f"[HeadLink] Mouth style: {have}" + ("" if want else " (head.mouth_style not set: left as is)"))
 
@@ -386,12 +397,19 @@ class Service:
             with self.mouth_lock:
                 self.mouth, self.mouth_port = ser, port
             self.send_mouth(self.core.mouth_on_connect() + ["?"])
-            check_until = time.monotonic() + 3          # check the style in the mouth's reply
+            check_until = time.monotonic() + 2          # then check the style in its last report
+            last_report = None
             buf = b""
             while True:
                 with self.mouth_lock:
                     if self.mouth is not ser:
                         break
+                if check_until and time.monotonic() > check_until:
+                    check_until = 0
+                    if last_report is None:
+                        print("[HeadLink] Mouth didn't report its state after connecting")
+                    else:
+                        self.log_mouth_style(last_report)
                 try:
                     buf += ser.read(256)
                 except Exception as e:
@@ -406,12 +424,8 @@ class Service:
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
                     line = line.strip()
-                    if check_until and line.startswith(b"mouth:") and b"unknown style" not in line:
-                        check_until = 0
-                        self.log_mouth_style(line)
-                    elif check_until and time.monotonic() > check_until:
-                        check_until = 0
-                        print("[HeadLink] Mouth didn't report its style")
+                    if check_until and is_mouth_report(line):
+                        last_report = line
                     if self.verbose and line:
                         print(f"[HeadLink] <- mouth  {line.decode(errors='replace')}")
             with self.mouth_lock:

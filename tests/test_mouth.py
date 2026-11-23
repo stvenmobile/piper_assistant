@@ -48,6 +48,10 @@ def test_mouth_style_is_read_from_its_report():
     assert mouth_style_of(b"mouth: LIVE, mode 0 neutral, status 0 idle, style spectrum, contrast 160") == "spectrum"
     assert mouth_style_of("mouth: LIVE, mode 0 neutral, status 0 idle, contrast 160") is None   # old firmware
     assert mouth_style_of("hello style lips") is None
+    assert mouth_style_of("mouth: LIVE") is None                       # leaving the demo, not a report
+    from piper_head.link import is_mouth_report
+    assert not is_mouth_report(b"mouth: LIVE") and not is_mouth_report("mouth: unknown style 'x'")
+    assert is_mouth_report(b"mouth: DEMO, mode 3 smile, status 0 idle, style lips, contrast 160")
 
 
 def test_mouth_style_is_sent_first_on_connect():
