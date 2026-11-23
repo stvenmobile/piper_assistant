@@ -265,8 +265,8 @@ class Service:
         while True:
             port = self.discover("head")
             if not port:
-                # once, then a reminder every 10 minutes (every 15 s with --verbose)
-                if last_warn is None or time.monotonic() - last_warn > (15 if self.verbose else 600):
+                # the head controller is optional (the mouth and servos work without it): only with --verbose
+                if self.verbose and (last_warn is None or time.monotonic() - last_warn > 15):
                     last_warn = time.monotonic()
                     print(f"[HeadLink] Waiting for the ESP32 (an Espressif USB device, VID {ESPRESSIF_VID:04X}"
                           f" - the S3's native USB port). Ports seen: {describe_ports()}")
