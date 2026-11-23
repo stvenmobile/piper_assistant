@@ -1,5 +1,5 @@
 """
-Client for the head link service - what the assistant uses to drive the light ring.
+Client for the head link service - what the assistant uses to drive the mouth OLED.
 
 Never blocks the conversation and never raises: if the link service isn't running, messages
 are dropped and it quietly tries to reconnect (at most every couple of seconds).
@@ -40,8 +40,7 @@ class HeadClient:
 
     @staticmethod
     def _drain(sock):
-        """Read and discard what the link sends (STATUS twice a second): a client that never
-        reads fills its socket buffer, and the link then drops it."""
+        """Read and discard anything the link sends, so the socket never backs up."""
         while True:
             try:
                 if not sock.recv(4096):
@@ -62,24 +61,11 @@ class HeadClient:
             self.next_try = time.monotonic() + self.RETRY_S
             return False
 
-    def face(self, state: str, mood: str | None = None, **kw) -> bool:
-        """Show a state on the ring; mood and attention= are optional."""
-        return self.send(protocol.face(state, mood, **kw))
-
-    def attention(self, deg: float | None) -> bool:
-        """Point the ring's attention arc (0 = top, clockwise from the front), or None to clear."""
-        return self.send(protocol.attention(deg))
-
     def mouth(self, mode: str | None = None, symbol: str | None = None, level: float | None = None,
               demo: bool | None = None) -> bool:
         """The mouth OLED: its expression (protocol.MOUTH_MODES), its status symbol
         (protocol.MOUTH_SYMBOLS), a speech level 0..1, or its demo loop on / off."""
         return self.send(protocol.mouth(level=level, mode=mode, symbol=symbol, demo=demo))
-
-    def assistant_state(self, status: str, mood: str | None = None) -> bool:
-        """The assistant's own state names (IDLE / ENGAGED / PROCESSING / SPEAKING)."""
-        state = protocol.ASSISTANT_TO_FACE.get(status)
-        return self.face(state, mood) if state else False
 
     def close(self):
         if self.sock is not None:

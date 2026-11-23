@@ -56,9 +56,8 @@ DEFAULTS: dict = {
         "voice_model": "en_US-amy-medium.onnx",
         "volume": 0.45,
     },
-    "head": {                             # piper-watch: the head link service and its clients
+    "head": {                             # piper-watch's mouth: the head link service and its clients
         "enabled": True,
-        "serial_port": "auto",            # "auto" = the CH340 face, else an Espressif USB device that isn't the mouth
         "mouth_port": "auto",             # the mouth OLED's XIAO: "auto" = the Espressif device that answers
                                           # "?" with "mouth:", a path like /dev/ttyACM1, or "off"
         "mouth_style": "spectrum",        # the mouth's look: "lips" or "spectrum" (bars like an audio analyser);
@@ -66,7 +65,6 @@ DEFAULTS: dict = {
         "baud": 115200,
         "host": "127.0.0.1",
         "port": 8770,
-        "heartbeat_s": 0.5,               # the ESP32 shows "offline" after 3 s without one
     },
         "vision": {                           # piper_vision: camera, face detection, attention
         "enabled": True,
@@ -78,7 +76,6 @@ DEFAULTS: dict = {
         "detect_width": 640,              # faces are detected on a copy this wide
         "score": 0.8,                     # YuNet confidence threshold
         "lost_s": 0.8,                    # let go of a target unseen this long
-        "attention_gain": 2.5,            # ring degrees per degree of head angle (edge of view ~ 90)
         "preview_port": 8081,             # live preview page (0 = off)
         "events_port": 8771,              # the vision hub: who is present, enrolment (localhost)
         # face recognition (SFace) - faces/ holds the face prints, never in git

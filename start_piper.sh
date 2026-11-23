@@ -40,7 +40,7 @@ export ORT_LOGGING_LEVEL="3"
 export TOKENIZERS_PARALLELISM="false"
 export PYTHONUNBUFFERED="1"
 
-# 4. The head link (piper-watch's ESP32) in the background; stopped when Piper exits
+# 4. The head link (piper-watch's mouth) in the background; stopped when Piper exits
 cd "${PROJECT_ROOT}"
 HEAD_ENABLED="$(python3 -c 'import sys; sys.path.insert(0, "src"); from piper_brain.config import CONFIG; print(CONFIG["head"]["enabled"])' 2>/dev/null || echo False)"
 if [[ "${HEAD_ENABLED}" == "True" ]]; then
@@ -52,7 +52,7 @@ if [[ "${HEAD_ENABLED}" == "True" ]]; then
     echo "[Head] Mouth style: ${MOUTH_STYLE}  (head.mouth_style in config.yaml: lips or spectrum)"
 fi
 
-# 5. Vision (camera, face tracking -> the ring's attention arc), also in the background
+# 5. Vision (camera, face tracking -> the pan / tilt servos), also in the background
 VISION_ENABLED="$(python3 -c 'import sys; sys.path.insert(0, "src"); from piper_brain.config import CONFIG; print(CONFIG["vision"]["enabled"])' 2>/dev/null || echo False)"
 if [[ "${VISION_ENABLED}" == "True" ]]; then
     python3 src/piper_vision/service.py &

@@ -6,7 +6,7 @@ Faces come in as (x, y, w, h, score) boxes in frame pixels. The tracker keeps on
   * it sticks with the same person while they're visible (nearest box to where they were),
   * it picks the largest (= nearest) face when it has no target,
   * it lets go after `lost_s` without a match,
-  * it smooths the position so the attention arc (and later the head) doesn't jitter.
+  * it smooths the position so the head doesn't jitter.
 """
 import math
 from dataclasses import dataclass
@@ -74,9 +74,3 @@ class Tracker:
         v = math.degrees(math.atan((self.h / 2 - t.cy) / self.f))
         return h, v
 
-
-def attention_deg(h_angle: float, gain: float, limit: float = 100.0) -> float:
-    """Where on the light ring the attention arc goes (0 = top, clockwise as seen from the
-    FRONT). A person to the camera's right is on the left as you face Piper, so the arc moves
-    the other way: it 'glances' toward them."""
-    return max(-limit, min(limit, -h_angle * gain))

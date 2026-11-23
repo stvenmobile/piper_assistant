@@ -59,15 +59,14 @@ ENGAGED_TIMEOUT_SECONDS = float(CONFIG["assistant"]["engaged_timeout_seconds"])
 running = True
 
 
-head = HeadClient()        # the light ring on piper-watch (silently does nothing if it isn't there)
+head = HeadClient()        # the link to piper-watch's mouth (silently does nothing if it isn't there)
 expression = Expression(head)   # the mouth OLED: expression + status symbol (piper_head/expression.py)
 research = ResearchHold()  # holds research on piper-mind while someone talks to Piper
 
 
 def set_status(state: AgentState, status: str, mood: str = "neutral"):
-    """Change the assistant's state and show it on the head's light ring and mouth."""
+    """Change the assistant's state and show it on the mouth."""
     state["status"] = status
-    head.assistant_state(status, mood)
     expression.assistant(status, mood)
     if status == "IDLE":
         research.release()                  # the conversation is over: research carries on
@@ -105,7 +104,6 @@ def run_quiet():
     """Do not disturb: no microphone, no speech - wait for 'q' (research runs separately)."""
     global running
     journal = ActivityJournal()
-    head.assistant_state("IDLE", "neutral")
     expression.assistant("IDLE")
     expression.start()
     print("--- Piper Assistant: QUIET mode (not listening, not speaking) ---")
@@ -361,9 +359,6 @@ def main():
             print(f"[Piper (LLM Reply, {time.time() - t_llm:.1f} s)]: {reply_text}")
             journal.log("REPLY_LLM", f"Generated: '{reply_text}'")
 
-            if llm_failed:                                  # e.g. Ollama unreachable
-                head.face("error", "concerned")
-                time.sleep(1.0)
             set_status(state, "SPEAKING", "concerned" if llm_failed else "neutral")
             speaker.speak(reply_text)
 

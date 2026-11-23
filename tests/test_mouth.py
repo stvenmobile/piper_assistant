@@ -4,7 +4,7 @@ import pytest
 from piper_brain.quick_responder import QuickResponder
 from piper_head import protocol
 from piper_head.expression import Expression
-from piper_head.link import HeadLink, find_mouth_port, find_port
+from piper_head.link import HeadLink, find_mouth_port
 from piper_skills.face_test import FaceTest, clean
 
 
@@ -26,12 +26,6 @@ def test_mouth_lines():
 
 
 # ---- the link ----------------------------------------------------------------------------------
-def test_head_controller_only_gets_speech_levels():
-    link = HeadLink()
-    assert link.from_client(protocol.mouth(mode="smile")) == []
-    assert link.from_client(protocol.mouth(level=0.4, mode="talk")) == [{"t": "MOUTH", "level": 0.4}]
-
-
 def test_mouth_mode_and_symbol_are_remembered_for_reconnects():
     link = HeadLink()
     assert link.mouth_on_connect() == []
@@ -40,7 +34,7 @@ def test_mouth_mode_and_symbol_are_remembered_for_reconnects():
     assert link.mouth_on_connect() == ["Mfrown", "Ilistening"]
     link.to_mouth(protocol.mouth(demo=False))
     assert link.mouth_on_connect() == ["Mneutral", "Ilistening"]
-    assert link.to_mouth(protocol.face("idle")) == []
+    assert link.to_mouth({"t": "FACE", "state": "idle"}) == []        # not a mouth message
 
 
 def test_mouth_style_is_read_from_its_report():
@@ -81,21 +75,14 @@ def _ports(monkeypatch, ports):
     monkeypatch.setattr(list_ports, "comports", lambda: [P(device=d, vid=v, pid=p) for d, v, p in ports])
 
 
-def test_head_and_mouth_are_told_apart(monkeypatch):
-    _ports(monkeypatch, [("/dev/ttyACM0", 0x303A, 0x1001), ("/dev/ttyACM1", 0x303A, 0x1001)])
-    kinds = {"/dev/ttyACM0": "mouth", "/dev/ttyACM1": "other"}
-    assert find_port("auto", kinds.get) == "/dev/ttyACM1"
+def test_the_mouth_is_the_espressif_device_that_answers(monkeypatch):
+    _ports(monkeypatch, [("/dev/ttyACM0", 0x303A, 0x1001), ("/dev/ttyACM1", 0x303A, 0x1001),
+                         ("/dev/ttyACM2", 0x1A86, 0x55D3)])                # + the servo adapter
+    kinds = {"/dev/ttyACM0": "mouth", "/dev/ttyACM1": "other", "/dev/ttyACM2": "mouth"}
     assert find_mouth_port("auto", kinds.get) == "/dev/ttyACM0"
     assert find_mouth_port("auto", kinds.get, exclude={"/dev/ttyACM0"}) is None
     assert find_mouth_port("off", kinds.get) is None
     assert find_mouth_port("/dev/ttyX", kinds.get) == "/dev/ttyX"
-
-
-def test_the_face_is_still_preferred_and_the_mouth_never_taken_as_head(monkeypatch):
-    _ports(monkeypatch, [("/dev/ttyACM0", 0x303A, 0x1001), ("/dev/ttyUSB0", 0x1A86, 0x7523)])
-    assert find_port("auto", lambda d: "mouth") == "/dev/ttyUSB0"
-    _ports(monkeypatch, [("/dev/ttyACM0", 0x303A, 0x1001)])
-    assert find_port("auto", lambda d: "mouth") is None
 
 
 # ---- expression --------------------------------------------------------------------------------

@@ -3,9 +3,8 @@ Vision service: camera -> face detection -> tracking -> recognition -> the head 
 
     python3 src/piper_vision/service.py       (start_piper.sh starts it when vision.enabled)
 
-For now (no pan motor yet) the tracked person's direction drives the light ring's ATTENTION
-arc, so it glances toward whoever Piper is looking at. Later the same angle becomes the pan
-target. A live preview with boxes is served on http://<jetson>:vision.preview_port.
+The tracked person's direction drives the pan / tilt servos (vision.follow), so Piper turns to
+look at whoever it is attending to. A live preview with boxes is served on http://<jetson>:vision.preview_port.
 
 Recognition: a couple of times a second a clear, front-on look at the tracked person is turned
 into a face print and compared with the people Piper has met (faces/, never in git). Who is
@@ -22,14 +21,13 @@ if __package__ in (None, ""):
 import cv2
 
 from piper_brain.config import CONFIG
-from piper_head.client import HeadClient
 from piper_vision.camera import open_camera, quiet_jpeg_warnings
 from piper_vision.detector import FaceDetector
 from piper_vision.faces import FaceLibrary, Identity, usable_face
 from piper_vision.follow import FollowConfig, Follower
 from piper_vision.hub import Hub
 from piper_vision.preview import Preview
-from piper_vision.tracker import Tracker, attention_deg
+from piper_vision.tracker import Tracker
 
 
 def draw(frame, boxes, target, info: str, label: str = ""):
@@ -82,7 +80,6 @@ def main():
     print(f"[Vision] Camera {dev} at {w}x{h}")
     detector = FaceDetector(w, h, cfg["detect_width"], cfg["score"])
     tracker = Tracker(w, h, cfg["hfov_deg"], cfg["lost_s"])
-    head = HeadClient()
     recognizer = make_recognizer(cfg)
     library = FaceLibrary(threshold=cfg["match_threshold"])
     if recognizer:
@@ -112,8 +109,6 @@ def main():
     track, ident = None, None   # the current target's id and who we think it is
     last_look = 0.0             # when we last took a face print
     enrolling = None
-    sent = None                 # last attention sent (degrees or None)
-    last_send = 0.0
     frames, fps, t_fps = 0, 0.0, time.monotonic()
     fails = 0                   # reads failed in a row: a stalled stream never recovers, so reopen it
     while True:
@@ -194,16 +189,6 @@ def main():
         else:
             hub.set_presence(True, track, ident.verdict)
 
-        # attention arc: send on change (>= 2 deg or appear/disappear), at most 10 times a second
-        att = None
-        if target is not None:
-            h_ang, v_ang = tracker.angles(target)
-            att = round(attention_deg(h_ang, cfg["attention_gain"]), 1)
-        changed = (att is None) != (sent is None) or (att is not None and abs(att - sent) >= 2)
-        if changed and now - last_send > 0.1:
-            head.attention(att)
-            sent, last_send = att, now
-
         # face following: move the head part of the way toward the face, a few times a second
         if follower is not None and now - last_follow >= 1 / fcfg["rate_hz"]:
             last_follow = now
@@ -223,7 +208,8 @@ def main():
         if preview and preview.viewers:
             info = f"{fps:4.1f} fps  faces {len(boxes)}"
             if target is not None:
-                info += f"  target {h_ang:+5.1f} deg  ring {att:+5.0f}"
+                h_ang, _ = tracker.angles(target)
+                info += f"  target {h_ang:+5.1f} deg"
             draw(frame, boxes, target, info, label_for(ident, enrolling) if recognizer else "")
             ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             if ok:

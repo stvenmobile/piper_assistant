@@ -41,7 +41,7 @@ class PiperBrainState(TypedDict):
     messages: List[BaseMessage]
     introspection_topic: Optional[str]
     introspection_result: Optional[str]
-    error: bool                     # set when the LLM couldn't be reached (the ring shows it)
+    error: bool                     # set when the LLM couldn't be reached
 
 
 def load_system_prompt() -> str:

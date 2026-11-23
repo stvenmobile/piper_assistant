@@ -2,8 +2,8 @@ import math
 
 import pytest
 
-from piper_head import protocol
-from piper_vision.tracker import Tracker, attention_deg
+from piper_vision.follow import FollowConfig, Follower
+from piper_vision.tracker import Tracker
 
 W, H = 1280, 720
 
@@ -49,22 +49,7 @@ def test_smoothing_moves_part_way():
     assert t.target.cx == pytest.approx(620)
 
 
-def test_attention_glances_toward_the_person():
-    # person to the camera's right = on the left as you face Piper = negative ring angle
-    assert attention_deg(10, gain=2.5) == -25
-    assert attention_deg(-10, gain=2.5) == 25
-    assert attention_deg(80, gain=2.5) == -100     # clamped
-
-
-def test_attention_message_leaves_state_alone():
-    assert protocol.attention(-30) == {"t": "FACE", "attention": -30.0}
-    assert protocol.attention(None) == {"t": "FACE", "attention": None}
-
-
 # ---- face following ------------------------------------------------------------------------------
-from piper_vision.follow import FollowConfig, Follower
-
-
 def test_follow_turns_toward_a_face_on_the_right():
     f = Follower(FollowConfig(gain=0.5, deadband_deg=2))
     pan, tilt = f.update(0.0, 0.0, -33.0, 10.0, 0.0)       # face 10 deg to the camera's right

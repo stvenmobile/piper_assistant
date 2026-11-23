@@ -18,7 +18,7 @@ if __package__ in (None, ""):
 ADDR_TORQUE, ADDR_ACC, ADDR_GOAL, ADDR_POS = 40, 41, 42, 56
 STEPS_PER_DEG = 4096 / 360
 CENTRE = 2048
-CH343 = (0x1A86, 0x55D3)        # the Waveshare adapter's USB-serial chip - NOT the face's CH340 (1A86:7523)
+CH343 = (0x1A86, 0x55D3)        # the Waveshare adapter's USB-serial chip
 
 
 def find_port() -> str | None:
