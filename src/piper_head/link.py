@@ -19,6 +19,7 @@ Head link service: the one program that talks to the piper-watch ESP32.
   and status symbol are re-sent whenever it (re)connects. Speech levels also go to the head.
 """
 import argparse
+import re
 import socket
 import sys
 import threading
@@ -138,6 +139,15 @@ def open_serial(port: str, baud: int):
     ser.dtr, ser.rts = True, False
     ser.open()
     return ser
+
+
+def mouth_style_of(line) -> str | None:
+    """The style in a mouth report ("mouth: LIVE, mode 0 neutral, ..., style spectrum, contrast 160"), None if the
+    firmware has no styles (older than the spectrum mouth) or it isn't a report."""
+    if isinstance(line, bytes):
+        line = line.decode(errors="replace")
+    m = re.search(r"\bstyle (\w+)", line) if line.startswith("mouth:") else None
+    return m.group(1) if m else None
 
 
 def probe_is_mouth(port: str, baud: int, wait_s: float = 1.5) -> bool:
@@ -321,6 +331,35 @@ class Service:
                 except Exception:
                     pass
 
+    def await_mouth(self, ser, tries: int = 4, wait_s: float = 1.0):
+        """Send "?" until the mouth answers (it may be booting); returns its report line, or None."""
+        for _ in range(tries):
+            try:
+                ser.reset_input_buffer()
+                ser.write(b"?\n")
+            except Exception:
+                return None
+            buf, until = b"", time.monotonic() + wait_s
+            while time.monotonic() < until:
+                try:
+                    buf += ser.read(256)
+                except Exception:
+                    return None
+                for line in buf.split(b"\n"):
+                    if line.strip().startswith(b"mouth:"):
+                        return line.strip()
+        return None
+
+    def log_mouth_style(self, line: bytes):
+        want, have = self.core.mouth_style, mouth_style_of(line)
+        if have is None:
+            print(f"[HeadLink] Mouth firmware has no styles - flash the current piper-watch mouth firmware "
+                  f"(wanted {want or 'its default'})")
+        elif want in ("lips", "spectrum") and have != want:
+            print(f"[HeadLink] Mouth style is {have}, but head.mouth_style asks for {want} - it didn't take")
+        else:
+            print(f"[HeadLink] Mouth style: {have}" + ("" if want else " (head.mouth_style not set: left as is)"))
+
     def mouth_loop(self):
         if self.cfg.get("mouth_port", "auto") in ("", "off"):
             return
@@ -340,9 +379,15 @@ class Service:
                 time.sleep(3)
                 continue
             print(f"[HeadLink] Mouth connected on {port}")
+            # It may have just restarted when the port opened: wait until it answers before sending anything,
+            # or the style / mode lines are lost while it boots.
+            report = self.await_mouth(ser)
+            if report is None:
+                print("[HeadLink] Mouth didn't answer '?' yet - sending its settings anyway")
             with self.mouth_lock:
                 self.mouth, self.mouth_port = ser, port
-            self.send_mouth(self.core.mouth_on_connect())
+            self.send_mouth(self.core.mouth_on_connect() + ["?"])
+            check_until = time.monotonic() + 3          # check the style in the mouth's reply
             buf = b""
             while True:
                 with self.mouth_lock:
@@ -361,8 +406,15 @@ class Service:
                     break
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
-                    if self.verbose and line.strip():
-                        print(f"[HeadLink] <- mouth  {line.strip().decode(errors='replace')}")
+                    line = line.strip()
+                    if check_until and line.startswith(b"mouth:") and b"unknown style" not in line:
+                        check_until = 0
+                        self.log_mouth_style(line)
+                    elif check_until and time.monotonic() > check_until:
+                        check_until = 0
+                        print("[HeadLink] Mouth didn't report its style")
+                    if self.verbose and line:
+                        print(f"[HeadLink] <- mouth  {line.decode(errors='replace')}")
             with self.mouth_lock:
                 self.mouth_port = None
             self.kinds.pop(port, None)
@@ -434,6 +486,10 @@ class Service:
             print(f"[HeadLink] Client disconnected {peer[0]}:{peer[1]}")
 
     def serve(self):
+        style = self.core.mouth_style
+        print(f"[HeadLink] Mouth style (head.mouth_style in config.yaml): "
+              + (style if style in ("lips", "spectrum") else f"{style!r} - not lips/spectrum, left as the mouth has it"
+                 if style else "not set - left as the mouth has it"))
         threading.Thread(target=self.serial_loop, daemon=True).start()
         threading.Thread(target=self.mouth_loop, daemon=True).start()
         threading.Thread(target=self.heartbeat_loop, daemon=True).start()

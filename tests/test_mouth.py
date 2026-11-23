@@ -43,6 +43,13 @@ def test_mouth_mode_and_symbol_are_remembered_for_reconnects():
     assert link.to_mouth(protocol.face("idle")) == []
 
 
+def test_mouth_style_is_read_from_its_report():
+    from piper_head.link import mouth_style_of
+    assert mouth_style_of(b"mouth: LIVE, mode 0 neutral, status 0 idle, style spectrum, contrast 160") == "spectrum"
+    assert mouth_style_of("mouth: LIVE, mode 0 neutral, status 0 idle, contrast 160") is None   # old firmware
+    assert mouth_style_of("hello style lips") is None
+
+
 def test_mouth_style_is_sent_first_on_connect():
     assert HeadLink("spectrum").mouth_on_connect() == ["Sspectrum"]
     link = HeadLink("lips")
