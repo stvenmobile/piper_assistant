@@ -48,6 +48,8 @@ if [[ "${HEAD_ENABLED}" == "True" ]]; then
     HEAD_PID=$!
     trap 'kill ${HEAD_PID} 2>/dev/null || true' EXIT
     echo "[Head] Link service started (pid ${HEAD_PID})"
+    MOUTH_STYLE="$(python3 -c 'import sys; sys.path.insert(0, "src"); from piper_brain.config import CONFIG; print(CONFIG["head"].get("mouth_style"))' 2>/dev/null || echo "?")"
+    echo "[Head] Mouth style: ${MOUTH_STYLE}  (head.mouth_style in config.yaml: lips or spectrum)"
 fi
 
 # 5. Vision (camera, face tracking -> the ring's attention arc), also in the background

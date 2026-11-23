@@ -186,7 +186,6 @@ class Service:
     def __init__(self, cfg: dict, verbose: bool = False):
         self.cfg = cfg
         self.verbose = verbose
-        self.drop_warned = False              # "not sent" said once per disconnection, not per message
         self.core = HeadLink(CONFIG["head"].get("mouth_style"))
         self.lock = threading.Lock()
         self.write_lock = threading.Lock()    # heartbeats and clients write from different threads
@@ -228,10 +227,9 @@ class Service:
             if ser is None:
                 # say so once per disconnection (every message with --verbose), not on every
                 # message: the head is optional, research and conversation carry on without it
-                if m.get("t") != "HEARTBEAT" and (self.verbose or not self.drop_warned):
-                    self.drop_warned = True
-                    print(f"[HeadLink] No ESP32 connected - head messages are dropped until it is"
-                          + (f": {m}" if self.verbose else ""))
+                # (the head is optional: research and conversation carry on without it; --verbose shows them)
+                if self.verbose and m.get("t") != "HEARTBEAT":
+                    print(f"[HeadLink] No ESP32 connected - dropped: {m}")
                 return
             try:
                 with self.write_lock:
@@ -271,7 +269,7 @@ class Service:
                 time.sleep(2)
                 continue
             print(f"[HeadLink] ESP32 connected on {port}")
-            self.drop_warned, last_warn = False, None
+            last_warn = None
             last_status = 0.0
             with self.lock:
                 self.serial, self.head_port = ser, port
@@ -367,9 +365,10 @@ class Service:
         while True:
             port = self.discover("mouth")
             if not port:
-                if self.verbose and (last_warn is None or time.monotonic() - last_warn > 15):
-                    last_warn = time.monotonic()
-                    print(f"[HeadLink] No mouth XIAO yet. Ports seen: {describe_ports()}")
+                if last_warn is None or (self.verbose and time.monotonic() - last_warn > 15):
+                    last_warn = time.monotonic()      # once (every 15 s with --verbose)
+                    print(f"[HeadLink] No mouth XIAO found yet - its style is set when it connects. "
+                          f"Ports seen: {describe_ports()}")
                 time.sleep(3)
                 continue
             try:
