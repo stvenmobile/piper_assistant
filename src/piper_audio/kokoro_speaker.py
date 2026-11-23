@@ -52,10 +52,13 @@ class KokoroSpeaker:
         sd.play(for_output(self.chime_data, self.out_channels), samplerate=HARDWARE_SAMPLE_RATE, device=self.device_index)
         sd.wait()
 
-    def speak(self, text: str):
+    def speak(self, text: str, on_start=None):
+        """Synthesize `text`, then play it. on_start() is called the moment playback begins (synthesis
+        comes first and can take seconds), so the mouth starts talking with the sound, not before it."""
         if not text:
             return
 
+        t0 = time.monotonic()
         generator = self.pipeline(text, voice=self.voice, speed=1.0)
         audio_chunks = []
         for gs, ps, audio in generator:
@@ -73,5 +76,9 @@ class KokoroSpeaker:
         audio_48k = resample(combined_audio, num_samples_48k)
         audio_pcm = (audio_48k * self.volume * 32767.0).astype(np.int16)
 
+        print(f"[KokoroSpeaker] {len(audio_pcm) / HARDWARE_SAMPLE_RATE:.1f} s of speech, "
+              f"synthesized in {time.monotonic() - t0:.1f} s")
+        if on_start:
+            on_start()
         sd.play(for_output(audio_pcm, self.out_channels), samplerate=HARDWARE_SAMPLE_RATE, device=self.device_index)
         sd.wait()

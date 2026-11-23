@@ -70,7 +70,8 @@ class PiperSpeaker:
         sd.play(for_output(self.chime_data, self.out_channels), samplerate=TARGET_HARDWARE_RATE, device=self.device_index)
         sd.wait()
 
-    def speak(self, text: str):
+    def speak(self, text: str, on_start=None):
+        """Synthesize `text`, then play it; on_start() is called the moment playback begins."""
         if not text:
             return
 
@@ -92,6 +93,8 @@ class PiperSpeaker:
             audio_np = resample(audio_np, num_samples)
 
         audio_final = (audio_np * self.volume).astype(np.int16)
+        if on_start:
+            on_start()
         sd.play(for_output(audio_final, self.out_channels), samplerate=TARGET_HARDWARE_RATE, device=self.device_index)
         sd.wait()
 

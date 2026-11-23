@@ -125,6 +125,14 @@ def main():
         return
     print("--- Starting Piper Assistant ---")
     speaker = make_speaker()
+
+    def talk(state: AgentState, text: str, mood: str = "neutral"):
+        """Say `text`. The mouth shows "thinking" while the voice is synthesized and starts talking when the
+        sound starts (synthesis takes a moment, longer for long replies)."""
+        if state["status"] != "IDLE":                 # (the startup greeting: stay dark until the sound starts)
+            set_status(state, "PROCESSING")
+        speaker.speak(text, on_start=lambda: set_status(state, "SPEAKING", mood))
+
     listener = PiperListener()
     quick_responder = QuickResponder()
     supervisor = PiperSupervisor()
@@ -141,8 +149,7 @@ def main():
 
     def say(text: str, mood: str = "neutral"):
         print(f"[Piper]: {text}")
-        set_status(state, "SPEAKING", mood)
-        speaker.speak(text)
+        talk(state, text, mood)
         set_status(state, "ENGAGED", mood)
 
     def hear() -> str:
@@ -195,8 +202,7 @@ def main():
 
     # the greeting moves the mouth too (it bypassed set_status, so the mouth stayed dark); then back
     # to IDLE (dark), since nobody is talking to her yet
-    set_status(state, "SPEAKING", "warm")
-    speaker.speak("Piper assistant is online and ready.")
+    talk(state, "Piper assistant is online and ready.", "warm")
     set_status(state, "IDLE")
 
     while running:
@@ -298,8 +304,7 @@ def main():
                 journal.log("INTENT_LOCAL", f"Matched '{user_text}'", f"Replied: '{quick_reply}'")
 
                 warm = quick_responder.last_kind in QuickResponder.WARM_KINDS
-                set_status(state, "SPEAKING", "warm" if warm else "neutral")
-                speaker.speak(quick_reply)
+                talk(state, quick_reply, "warm" if warm else "neutral")
                 append_and_truncate_message(state, AIMessage(content=quick_reply))
                 
                 if any(k in user_text.lower() for k in ["goodbye", "bye", "see you"]):
@@ -326,8 +331,7 @@ def main():
                 if deep_reply:
                     print(f"[Piper (Deep, {time.time() - t_deep:.1f} s)]: {deep_reply}")
                     journal.log("REPLY_DEEP", f"Generated: '{deep_reply}'")
-                    set_status(state, "SPEAKING")
-                    speaker.speak(deep_reply)
+                    talk(state, deep_reply)
                     append_and_truncate_message(state, AIMessage(content=deep_reply))
                     set_status(state, "ENGAGED")
                     state["last_interaction_time"] = time.time()
@@ -359,8 +363,7 @@ def main():
             print(f"[Piper (LLM Reply, {time.time() - t_llm:.1f} s)]: {reply_text}")
             journal.log("REPLY_LLM", f"Generated: '{reply_text}'")
 
-            set_status(state, "SPEAKING", "concerned" if llm_failed else "neutral")
-            speaker.speak(reply_text)
+            talk(state, reply_text, "concerned" if llm_failed else "neutral")
 
             set_status(state, "ENGAGED")
             if llm_failed:
