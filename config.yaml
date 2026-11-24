@@ -35,3 +35,18 @@ audio:
 weather:
   location: "Matthews,NC"
   cache_minutes: 10    # fetched at most this often (it used to be fetched on every LLM reply)
+
+# ---- the robot (only the Jetson runs these; piper-mind ignores them) ----
+vision:
+  follow:
+    enabled: true
+    pan_limits: [-60, 60]
+    tilt_limits: [-16, 50]
+    home: [0, 0]
+    tilt_ratio: 1.0
+
+head:
+  mouth_style: spectrum   # or lips (the OLED mouth; the 7" face panel only has spectrum)
+  # the 7" CrowPanel P4 face: a CH340 USB-serial chip, not Espressif's own USB, so the link can't find
+  # it by itself ("auto" only finds the XIAO OLED mouth). For the XIAO: mouth_port: auto
+  mouth_port: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
