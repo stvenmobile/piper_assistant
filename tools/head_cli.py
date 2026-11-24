@@ -1,7 +1,7 @@
 """
 Drive the mouth OLED by hand, through the head link service (which must be running).
 
-    python3 tools/head_cli.py mouth smile              # neutral talk happytalk smile frown surprise
+    python3 tools/head_cli.py mouth smile              # neutral talk happytalk excitedtalk smile frown surprise
                                                        #   sleep happysleep research blank
     python3 tools/head_cli.py mouth talk --level 180   # with speech levels (0-255) for --seconds
     python3 tools/head_cli.py mouth demo               # its demo loop; "mouth demo-off" stops it

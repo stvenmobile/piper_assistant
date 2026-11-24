@@ -6,18 +6,24 @@ Unknown types and fields are ignored.
 The mouth OLED's XIAO ESP32-S3 (piper-watch firmware/mouth) speaks plain text lines, not JSON;
 the link translates MOUTH messages for it (mouth_lines):
 
-    M<mode>      neutral, talk, happytalk, smile, frown, surprise, sleep, happysleep,
+    M<mode>      neutral, talk, happytalk, excitedtalk, smile, frown, surprise, sleep, happysleep,
                  research ("Research in progress..."), blank (dark screen)
+                 (excitedtalk: the face panel's full-height speech bars; talk / happytalk use half)
     I<symbol>    the status symbol, top right: idle (none), listening, thinking, confused
     L<0..255>    speech loudness (talk modes only; without it the mouth simulates speech)
     D1 / D0      its demo loop on / off
     S<style>     lips or spectrum (the link sends head.mouth_style when the mouth connects)
     ?            it answers "mouth: ..." - how the link recognises it
+
+Version 1.1.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+History:
+    1.1.0  2026-11-24  the "excitedtalk" mouth mode (full-height speech bars on the face panel).
+    1.0.0  -           earlier work, unversioned (git history)
 """
 import json
 
-MOUTH_MODES = ("neutral", "talk", "happytalk", "smile", "frown", "surprise", "sleep", "happysleep", "research",
-               "blank")
+MOUTH_MODES = ("neutral", "talk", "happytalk", "excitedtalk", "smile", "frown", "surprise", "sleep", "happysleep",
+               "research", "blank")
 MOUTH_SYMBOLS = ("idle", "listening", "thinking", "confused")
 
 def encode(msg: dict) -> bytes:

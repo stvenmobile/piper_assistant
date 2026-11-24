@@ -362,6 +362,7 @@ On top of the state, a **mood** colours how it is shown - hue, brightness and te
 | ------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | **Neutral**        | soft warm white                                                        | default                                                                    |
 | **Warm / pleased** | warmer, a little brighter; a welcome swell when a known person arrives | recognising someone; a friendly exchange                                   |
+| **Excited**        | the face's **excited talk**: speech bars at full height (normal talk uses half), eyes a little wider | nothing yet - only `say(text, "excited")` and "Piper, test excited talk" |
 | **Curious**        | slow cool-tinted shimmer                                               | idle-time exploration (curious-george, section 9); an interesting question |
 | **Uncertain**      | dimmer, slower breathing                                               | low-confidence speech recognition; "I'm not sure" replies                  |
 | **Concerned**      | amber tint                                                             | errors, lost network, the head blocked                                     |
@@ -377,10 +378,10 @@ The mood comes from simple, inspectable signals - recognition events, error cond
 | woken while research runs | **"Research in progress..."** while she pauses it (below)            | -                          |
 | ENGAGED         | neutral (a smile for 3 s when a known face is welcomed)                        | listening: + / −           |
 | PROCESSING      | neutral                                                                        | thinking: three dots       |
-| SPEAKING        | talk, or **happy talk** for friendly replies (greetings, goodbyes, chat)        | none                       |
+| SPEAKING        | talk, or **happy talk** for friendly replies (greetings, goodbyes, chat), or **excited talk** when the mood is "excited" | none                       |
 | LLM failed      | neutral                                                                        | confused: ??? for 4 s      |
 
-Speech moves the lips only in the two talk modes (the mouth simulates speech by itself), so Piper never talks while frowning or surprised. Modes: neutral, talk, happytalk, smile, frown, surprise ("Oh!"), sleep, happysleep, research (the message), blank. The mouth also goes blank by itself after 5 minutes without any command.
+Speech moves the lips only in the three talk modes (the mouth simulates speech by itself), so Piper never talks while frowning or surprised. Modes: neutral, talk, happytalk, excitedtalk (the face panel; the old OLED mouth firmware doesn't know it), smile, frown, surprise ("Oh!"), sleep, happysleep, research (the message), blank. The mouth also goes blank by itself after 5 minutes without any command.
 
 **Pausing research for a conversation.** Research (on piper-mind) and conversation share one Ollama - QUANTUM's 12 GB RTX 5070 - and it can't hold both models, so a question asked while research ran waited for a model swap (~100 s). Now the wake word holds research:
 
@@ -405,6 +406,7 @@ python3 tools/head_cli.py status thinking      # idle, listening, thinking, conf
 | "Piper, show me your faces"                 | every mouth mode, then every status symbol (~22 s)    |
 | "Piper, test normal talk"                   | says a sentence with the normal talking mouth         |
 | "Piper, test happy talk"                    | says a sentence with the happy talking mouth          |
+| "Piper, test excited talk"                  | says a sentence with the excited talking mouth        |
 | "Piper, go to sleep" / "Piper, wake up"     | the sleep mouth for 2 minutes, then dark / says she's awake |
 | "Piper, think carefully: <question>"        | answers with the research model, thinking (slower)    |
 

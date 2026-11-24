@@ -11,6 +11,11 @@ Head link service: the one program that talks to piper-watch's mouth (its XIAO E
 * Sets the mouth's style (head.mouth_style) and restores its last mode and status symbol whenever it
   (re)connects.
 (The servos have their own adapter and are driven by vision directly, not through the link.)
+
+Version 1.1.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+History:
+    1.1.0  2026-11-24  listening also stops the new excitedtalk mouth (-> neutral).
+    1.0.0  -           earlier work, unversioned (git history)
 """
 import argparse
 import re
@@ -48,7 +53,7 @@ class HeadLink:
             self.mouth_last["symbol"] = msg["symbol"]
             # the mouth stops talking when it starts listening (its firmware does the same)
             if msg["symbol"] == "listening" and "mode" not in msg:
-                talking = {"talk": "neutral", "happytalk": "smile"}
+                talking = {"talk": "neutral", "happytalk": "smile", "excitedtalk": "neutral"}
                 if self.mouth_last.get("mode") in talking:
                     self.mouth_last["mode"] = talking[self.mouth_last["mode"]]
         return protocol.mouth_lines(msg)

@@ -3,7 +3,7 @@ import pytest
 
 from piper_brain.quick_responder import QuickResponder
 from piper_head import protocol
-from piper_head.expression import Expression
+from piper_head.expression import TALK_BY_MOOD, Expression
 from piper_head.link import HeadLink, find_mouth_port
 from piper_skills.face_test import FaceTest, clean
 
@@ -64,6 +64,9 @@ def test_listening_stops_talking():
     link.to_mouth(protocol.mouth(mode="happytalk"))
     link.to_mouth(protocol.mouth(symbol="listening"))
     assert link.mouth_last["mode"] == "smile"
+    link.to_mouth(protocol.mouth(mode="excitedtalk"))
+    link.to_mouth(protocol.mouth(symbol="listening"))
+    assert link.mouth_last["mode"] == "neutral"
     link.to_mouth(protocol.mouth(mode="frown"))
     link.to_mouth(protocol.mouth(symbol="listening"))
     assert link.mouth_last["mode"] == "frown"
@@ -114,6 +117,7 @@ def ex():
     ("PROCESSING", "neutral", ("neutral", "thinking")),
     ("SPEAKING", "neutral", ("talk", "idle")),
     ("SPEAKING", "warm", ("happytalk", "idle")),
+    ("SPEAKING", "excited", ("excitedtalk", "idle")),
     ("SPEAKING", "concerned", ("talk", "idle")),
 ])
 def test_states_map_to_the_mouth(ex, status, mood, wanted):
@@ -244,3 +248,20 @@ def test_quick_responder_reports_the_kind(monkeypatch):
     assert qr.match("what time is it") and qr.last_kind == "time"
     assert qr.match("tell me about rockets") is None and qr.last_kind is None
     assert "greeting" in QuickResponder.WARM_KINDS and "time" not in QuickResponder.WARM_KINDS
+
+
+# ---- the "excited" mood ------------------------------------------------------------------------
+def test_excited_mood_talks_excitedly_only_while_speaking(ex):
+    assert TALK_BY_MOOD["excited"] == "excitedtalk" and "excitedtalk" in protocol.MOUTH_MODES
+    assert protocol.mouth_lines(protocol.mouth(mode="excitedtalk")) == ["Mexcitedtalk"]
+    ex.assistant("ENGAGED", "excited")
+    assert ex.wanted() == ("neutral", "listening")
+    ex.assistant("SPEAKING", "excited")
+    assert ex.wanted() == ("excitedtalk", "idle")
+    ex.assistant("SPEAKING", "neutral")
+    assert ex.wanted() == ("talk", "idle")
+
+
+def test_test_excited_talk_phrase(ft):
+    assert ft.handle("Piper, test excited talk") == "engaged"
+    assert ft.said[-1][1] == "excited"

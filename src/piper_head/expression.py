@@ -8,7 +8,8 @@ test skill and a few moments (a welcome, a misunderstanding) show something for 
                            research carries on)
     ENGAGED                neutral                                      listening (+ / -)
     PROCESSING             neutral                                      thinking (dots)
-    SPEAKING               talk; happytalk when the mood is "warm"      none
+    SPEAKING               talk; happytalk when the mood is "warm",     none
+                           excitedtalk when it is "excited"
 
     research_notice(True)  "Research in progress..." instead of the mouth while Piper pauses her
                            research after the wake word; research_notice(False) when she's ready
@@ -17,9 +18,14 @@ test skill and a few moments (a welcome, a misunderstanding) show something for 
     confused()             ??? for a few seconds
     sleep()                the sleep mouth for SLEEP_S ("Piper, go to sleep"), then blank
 
-Speech moves the lips only in talk / happytalk (the mouth simulates speech by itself), so
-frowning while talking can't happen. Never raises: the client drops messages if the head link
-isn't running.
+Speech moves the lips only in talk / happytalk / excitedtalk (the mouth simulates speech by
+itself), so frowning while talking can't happen. Never raises: the client drops messages if the
+head link isn't running.
+
+Version 1.1.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+History:
+    1.1.0  2026-11-24  "excited" mood -> excitedtalk while speaking.
+    1.0.0  -           earlier work, unversioned (git history)
 """
 import threading
 import time
@@ -27,6 +33,7 @@ import time
 TICK_S = 1.0          # override expiry
 RESEND_S = 60.0       # re-send what should be showing, in case the link restarted
 SLEEP_S = 120.0       # "go to sleep": the sleep mouth this long, then the dark screen
+TALK_BY_MOOD = {"warm": "happytalk", "excited": "excitedtalk"}   # the talking mouth per mood; else "talk"
 
 
 class Expression:
@@ -89,7 +96,7 @@ class Expression:
             elif s == "PROCESSING":
                 mode, symbol = "neutral", "thinking"
             elif s == "SPEAKING":
-                mode, symbol = ("happytalk" if self.mood == "warm" else "talk"), "idle"
+                mode, symbol = TALK_BY_MOOD.get(self.mood, "talk"), "idle"
             else:
                 mode, symbol = "neutral", "idle"
             if self.override:

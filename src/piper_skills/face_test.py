@@ -8,9 +8,15 @@ Spoken test phrases for the mouth OLED - answered locally, no language model:
     "Piper, wake up"                              (the wake word already woke her) - says so
     "Piper, test normal talk"                     a sentence in the plain talking mouth
     "Piper, test happy talk"                      a sentence in the happy talking mouth
+    "Piper, test excited talk"                    a sentence in the excited talking mouth (mood "excited")
 
 handle(text) -> None (not one of these), "engaged" (stay in the conversation) or "sleep" (the
 caller ends the conversation, so the sleep mouth shows).
+
+Version 1.1.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+History:
+    1.1.0  2026-11-24  "test excited talk".
+    1.0.0  -           earlier work, unversioned (git history)
 """
 import re
 import time
@@ -39,6 +45,7 @@ FACES = {
 
 NORMAL_TALK = "This is my normal talking face. I use it for most of what I say."
 HAPPY_TALK = "And this is my happy talking face, for when I'm glad to see you!"
+EXCITED_TALK = "And this is my excited talking face, for when I have something really big to tell you!"
 
 
 def clean(text: str) -> str:
@@ -76,6 +83,9 @@ class FaceTest:
             return "engaged"
         if re.fullmatch(r"test (your )?happy (talk|talking)", t):
             self.say(HAPPY_TALK, "warm")
+            return "engaged"
+        if re.fullmatch(r"test (your )?excited (talk|talking)", t):
+            self.say(EXCITED_TALK, "excited")
             return "engaged"
         return None
 
