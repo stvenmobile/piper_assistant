@@ -66,3 +66,6 @@ profiles/*
 
 # Personal research seeds (the example file is committed)
 research_seeds.yaml
+
+# Daily journal file
+daily_journal.md
