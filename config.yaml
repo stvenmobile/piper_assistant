@@ -6,7 +6,7 @@ assistant:
 llm:
   provider: "ollama"
   base_url: "http://192.168.1.150:11434"
-  model: "llama3.2:latest"   # the 3B model - Ollama on the PC has it tagged "latest", not "3b"
+  model: "qwen3:14b"   # thinking off for conversation (llm.think); was llama3.2:latest (3B)
   temperature: 0.4
   keep_alive: "2h"     # keep the model loaded on the PC (a cold load took ~80 s)
 

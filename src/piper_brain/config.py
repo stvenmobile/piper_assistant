@@ -3,6 +3,11 @@ Piper Brain: Central configuration loader - the one place config.yaml is read.
 
 Every setting has a default here; config.yaml overrides any of them (nested sections are
 merged, so a partial section is fine), and a few environment variables override those.
+
+Version 1.1.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+History:
+    1.1.0  2026-11-24  Chat model qwen3:14b (thinking off); research only 02:00-08:00 (pause 08:00-02:00 daily).
+    1.0.0  -           earlier work, unversioned (git history)
 """
 
 from pathlib import Path
@@ -31,7 +36,9 @@ DEFAULTS: dict = {
     "llm": {
         "provider": "ollama",
         "base_url": "http://192.168.1.150:11434",
-        "model": "llama3.2:latest",       # = the 3B model (tag as installed in Ollama)
+        "model": "qwen3:14b",             # all on QUANTUM's 12 GB GPU: ~0.7 s a reply (tools/ollama_bench.py,
+                                          #   2026-11-24; llama3.2 3B was as fast but a weaker talker)
+        "think": False,                   # qwen3's thinking mode stays off for conversation (speed)
         "temperature": 0.4,
         "keep_alive": "2h",               # how long Ollama keeps the model loaded between requests
         # spoken replies: the model ignored "1 to 2 sentences" and once spoke for 2 3/4 minutes,
@@ -126,8 +133,9 @@ DEFAULTS: dict = {
         "session_hours": 0,               # a research SESSION (start_quiet.sh starts one). 0 = no end, in the
                                           #   daily RHYTHM below; N = research N hours, write the summary, stop
         "rhythm": {                       # research with no end, in a structure (piper_research/rhythm.py)
-            "pause": ["10:00-17:00"],     # leave the PC's GPU alone (working hours) ...
-            "pause_days": "weekdays",     # ... on these days: "weekdays", "daily", or a list ["mon", "tue", ...]
+            "pause": ["08:00-02:00"],     # research only 02:00-08:00: the GPU is left to conversation
+                                          #   the rest of the day (2026-11-24; was 10:00-17:00 weekdays)
+            "pause_days": "daily",        # ... on these days: "weekdays", "daily", or a list ["mon", "tue", ...]
             "consolidate": "05:00-07:00", # no new reading: reflect, synthesize over everything, prune, review
             "report_at": "07:00",         # the daily report (dashboard + a remark Piper can say)
             "weekly_day": "sun",          # the weekly report and topic decisions (retire/rest/spawn/propose)

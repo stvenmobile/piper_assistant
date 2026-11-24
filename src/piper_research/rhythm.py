@@ -1,6 +1,6 @@
 """
 Piper's research RHYTHM - research with no end, but in a structure: explore, pause, consolidate,
-report. Local time; the defaults (config research.rhythm):
+report. Local time; the defaults (config research.rhythm) - research runs only 02:00-08:00 now:
 
     05:00-07:00   CONSOLIDATE  no new reading: reflect on every topic researched since yesterday,
                                a synthesis pass over every topic with enough material, prune stale
@@ -8,12 +8,17 @@ report. Local time; the defaults (config research.rhythm):
                                (retire, rest, wake, spawn a sub-topic, propose a new topic). Time
                                left over goes to the re-judging backlog
     07:00         REPORT       the daily report (and the weekly one on the weekly day)
-    10:00-17:00   PAUSE        the PC's GPU is left alone - weekdays only (pause_days)
+    08:00-02:00   PAUSE        the PC's GPU is left to conversation - every day (pause_days)
     otherwise     EXPLORE      research and synthesis cycles (synthesis.py decides which), with a
                                CHECKPOINT every hour: topic stages updated, logged
 
 Rhythm says which phase a moment is in; Curator does the checkpoint / consolidation / report /
 topic-decision work with a Researcher. service.py runs the loop.
+
+Version 1.1.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+History:
+    1.1.0  2026-11-24  Docs: the default pause is now 08:00-02:00 daily (research 02:00-08:00).
+    1.0.0  -           earlier work, unversioned (git history)
 """
 import json
 import time

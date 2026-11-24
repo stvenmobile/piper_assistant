@@ -34,7 +34,7 @@ Piper's research side - curiosity, choosing what to study and checking whether s
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | **NVIDIA Jetson Orin NX 16 GB** in a Seeed **reComputer J4012**       | runs everything here (Ubuntu 22.04, JetPack 6.1, CUDA 12.6)                                                                           |
 | **SP-200 USB speakerphone** (4-mic array, hardware echo cancellation) | microphone and speaker; sits on the desk wherever is convenient. Until it is configured, a USB microphone and a USB speaker are used. |
-| **Ollama** server on the local network (`llama3.2:latest`, the 3B model)                | the language model for anything the quick responder can't answer                                                                      |
+| **Ollama** server on the local network (`qwen3:14b`, thinking off)                       | the language model for anything the quick responder can't answer                                                                      |
 | **piper-watch** base (being built): ESP32-S3 + TMC2209 + NEMA17       | pans the head (belt and lazy-Susan bearing, Hall-sensor homing); sits on top of the reComputer                                         |
 | **piper-watch** head (being built): XIAO ESP32-S3                     | drives the face over one SPI bus; USB to the Jetson                                                                                   |
 | two 1.28" round **GC9A01** TFTs (240 x 240)                           | the eyes                                                                                                                              |
@@ -139,7 +139,7 @@ assistant:
   max_conversation_turns: 8         # messages kept in the conversation
 llm:
   base_url: "http://192.168.1.150:11434"
-  model: "llama3.2:latest"
+  model: "qwen3:14b"
 audio:
   mic_device_hint: "pnp"            # any unique part of the device name (see 5.3)
   speaker_device_hint: "usb2.0"
@@ -179,7 +179,7 @@ research with no end, in a daily structure (`src/piper_research/rhythm.py`, `res
 |---|---|
 | 05:00-07:00 | **Consolidate** - no new reading: reflect on every topic researched since yesterday, a synthesis pass over every topic, prune stale questions, review insights; on Sundays the **topic decisions** (rest a stuck topic, wake a rested one, and *propose* new topics and sub-topics - you add them). Topics ready for mastery ask for it. Spare time goes to the re-judging backlog |
 | 07:00 | **Daily report** (and the weekly one on Sundays) - on the dashboard, and a short version Piper can say |
-| 10:00-17:00 | **Pause**, weekdays only (`pause_days`) - the PC's GPU is left alone. Weekends: explore |
+| 08:00-02:00 | **Pause**, every day (`pause_days`) - the PC's GPU is left to conversation (since 2026-11-24; was 10:00-17:00 on weekdays) |
 | otherwise | **Explore** - research and synthesis cycles, with a checkpoint every hour |
 
 Each research cycle, Piper researches the topics in her memory (`piper_memory`):

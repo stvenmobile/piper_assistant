@@ -1,5 +1,10 @@
 """
 Piper Supervisor: Voice-Driven Autonomous State Machine with Dynamic Context and Remote Ollama.
+
+Version 1.1.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+History:
+    1.1.0  2026-11-24  Thinking mode off for qwen3 (llm.think); any <think> block is removed before speaking.
+    1.0.0  -           earlier work, unversioned (git history)
 """
 
 import os
@@ -60,10 +65,14 @@ _LIST_MARK = re.compile(r"^\s*(?:[-*\u2022]+|\d+[.)]|#+)\s*", re.MULTILINE)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|(?<=[.!?][\"')\]])\s+")
 
 
+_THINK = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL | re.IGNORECASE)
+
+
 def spoken_reply(text: str, max_sentences: int = 3) -> str:
-    """What Piper says aloud: no markdown, no list numbering, one paragraph, and at most
+    """What Piper says aloud: no thinking, no markdown, no list numbering, one paragraph, and at most
     `max_sentences` complete sentences (a reply cut off by the token cap loses its unfinished end)."""
-    t = _LIST_MARK.sub("", text or "").replace("*", "").replace("#", "")
+    t = _THINK.sub("", text or "")                     # a thinking model's <think>...</think>, if it leaks
+    t = _LIST_MARK.sub("", t).replace("*", "").replace("#", "")
     t = " ".join(t.split())
     sentences = [s for s in _SENTENCE_END.split(t) if s.strip()]
     if not sentences:
@@ -78,7 +87,7 @@ class PiperSupervisor:
     def __init__(self):
         llm_cfg = CONFIG["llm"]
         print(f"[Supervisor] Connecting to ChatOllama ({llm_cfg['model']}) at {llm_cfg['base_url']}...")
-        self.llm = ChatOllama(
+        kw = dict(
             model=llm_cfg["model"],
             temperature=llm_cfg.get("temperature", 0.4),
             base_url=llm_cfg["base_url"],
@@ -86,6 +95,11 @@ class PiperSupervisor:
                                                           #   and reloading took ~80 s on the PC
             num_predict=llm_cfg.get("reply_max_tokens", 160),   # spoken replies stay short (and fast)
         )
+        try:                                              # qwen3 thinks by default: off for conversation
+            self.llm = ChatOllama(**kw, reasoning=bool(llm_cfg.get("think", False)))
+        except Exception:                                 # an older langchain-ollama without `reasoning`
+            print("[Supervisor] langchain-ollama can't turn thinking off - upgrade it (pip install -U langchain-ollama)")
+            self.llm = ChatOllama(**kw)
         self.max_sentences = llm_cfg.get("reply_max_sentences", 3)
         self.system_prompt = SystemMessage(content=load_system_prompt())
         # build the graph first: it used to be built at the end of the warm-up, so a question asked
