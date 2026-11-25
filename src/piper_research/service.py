@@ -25,6 +25,12 @@ Deletion requests from the dashboard are carried out here, between steps: the se
 similarity indexes in RAM, so it is the one that deletes (and rebuilds them).
 
 Ctrl+C (or SIGTERM) stops between steps; an unfinished cycle is recorded as 'interrupted'.
+
+Version 1.1.1 - created before 2026-11 (date not recorded), last modified 2026-11-25
+History:
+  1.1.1  2026-11-25  nap(): never sleep a negative time. The deadline could pass between the loop check
+                     and time.sleep(), which raised ValueError and killed the service (Orin trial,
+                     2026-11-25 10:47, ~15 min in). First version block in this file.
 """
 import argparse
 import json
@@ -66,7 +72,7 @@ def nap(seconds: float):
     while not stop and time.monotonic() < end:
         if GATE is not None and GATE.wait():       # a conversation started: say so, wait it out
             return
-        time.sleep(min(1.0, end - time.monotonic()))
+        time.sleep(max(0.0, min(1.0, end - time.monotonic())))   # deadline may pass after the check
 
 
 def utc_now() -> str:
