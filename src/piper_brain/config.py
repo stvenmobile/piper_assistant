@@ -4,8 +4,9 @@ Piper Brain: Central configuration loader - the one place config.yaml is read.
 Every setting has a default here; config.yaml overrides any of them (nested sections are
 merged, so a partial section is fine), and a few environment variables override those.
 
-Version 1.1.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+Version 1.2.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
 History:
+    1.2.0  2026-11-24  health section (piper_health).
     1.1.0  2026-11-24  Chat model qwen3:14b (thinking off); research only 02:00-08:00 (pause 08:00-02:00 daily).
     1.0.0  -           earlier work, unversioned (git history)
 """
@@ -198,6 +199,17 @@ DEFAULTS: dict = {
         "cross_links_per_window": 20,     # cross-topic links flagged per research day (rhythm) or window
         "cross_links_per_pair": 2,        # after this many, two topics are known to be linked - no more flags
         "pause_s": 20,                    # between cycles
+    },
+    "health": {                           # piper_health: how hard Piper's services work, what's left of the machine
+        "interval_s": 1.0,                # seconds between samples
+        "history_dir": "data/health",     # reports (relative to the repo root; data/ is git-ignored)
+        "services": {                     # name -> a part of the command line that identifies it
+            "assistant": "src/main.py",
+            "vision": "piper_vision/service.py",
+            "head_link": "piper_head/link.py",
+            "research": "piper_research/service.py",
+            "dashboard": "piper_dashboard/server.py",
+        },
     },
     "dashboard": {                        # piper_dashboard: read-only web view of the research memory
         "enabled": True,
