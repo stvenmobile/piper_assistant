@@ -135,6 +135,18 @@ pre.think { white-space: pre-wrap; background: var(--panel2); border-radius: 8px
 @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .gwrap { grid-template-columns: 1fr; } .pair { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { nav { margin-left: 0; width: 100%; overflow-x: auto; } .grid { grid-template-columns: 1fr; } }
+/* health */
+.hcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; }
+.hcard h3 { margin: 0 0 2px; font-size: 16px; } .hcard .sub { font-size: 12px; color: var(--muted); }
+.hcard .kpis { margin-top: 10px; } .kpi.hot .v { color: var(--warn); } .kpi.bad .v { color: var(--cha); }
+.ptab { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+.ptab td { padding: 3px 4px; border-top: 1px solid var(--line); } .ptab td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.pbar { height: 6px; border-radius: 3px; background: var(--accent); }
+.hrep { cursor: pointer; } .hrep:hover td { background: var(--panel2); } .hrep.sel td { background: var(--panel2); }
+.hchart { width: 100%; height: 220px; display: block; } .hchart text { fill: var(--muted); font-size: 11px; }
+.hleg { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin: 6px 0; }
+.hleg i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+pre.htext { white-space: pre-wrap; font-size: 12px; color: var(--muted); margin: 8px 0 0; }
 </style>
 </head>
 <body>
@@ -150,6 +162,7 @@ pre.think { white-space: pre-wrap; background: var(--panel2); border-radius: 8px
     <button data-view="sessions">Sessions</button>
     <button data-view="notable">Notable</button>
     <button data-view="graph">Graph</button>
+    <button data-view="health">Health</button>
   </nav>
 </header>
 <main>
@@ -241,6 +254,15 @@ pre.think { white-space: pre-wrap; background: var(--panel2); border-radius: 8px
       <div class="panel" id="gside"><div class="muted">Click a concept to see what Piper has linked it to, and the findings behind each link. Drag to pan, scroll to zoom.</div></div>
     </div>
   </section>
+  <section class="view" id="health">
+    <div class="panel"><h2>Live</h2><div id="hLive"></div></div>
+    <div class="panel"><h2>Reports</h2>
+      <table><thead><tr><th>Started</th><th>Machine</th><th>Title</th><th>Length</th><th class="n">CPU avg / peak</th>
+        <th class="n">Free memory</th><th class="n">Hottest</th><th>Busiest process</th></tr></thead>
+        <tbody id="hReps"></tbody></table>
+    </div>
+    <div class="panel" id="hDetail" style="display:none"></div>
+  </section>
 </main>
 
 <script>
@@ -268,6 +290,7 @@ function show(v) {
   if (v === "sessions") loadSessions();
   if (v === "notable") loadNotable();
   if (v === "graph") loadGraph();
+  if (v === "health") loadHealth();
 }
 
 // ---- header + now -------------------------------------------------------------------------------
@@ -746,6 +769,81 @@ async function openReport(id) {
   $("#repBody").dataset.id = id;
   $("#repBody").innerHTML = r ? md(r.text) : `<div class="muted">Not found.</div>`;
 }
+
+
+// ---- health ---------------------------------------------------------------------------------------------
+const HCOL = ["#4f8fd8", "#3fb67a", "#e3a64a", "#e0685f", "#a07ee0", "#3fb5c4", "#c97bb0", "#8a939d"];
+const f1 = v => v == null ? "–" : (Math.round(v * 10) / 10).toString();
+const dur = s => s == null ? "" : s < 3600 ? Math.round(s / 60) + " min" : hm(s);
+const gb = mb => mb == null ? "–" : (mb / 1024).toFixed(1) + " GB";
+let hSel = null;
+async function loadHealth() {
+  let d;
+  try { d = await get("/api/health"); } catch (e) { $("#hLive").innerHTML = `<div class="muted">${esc(e.message)}</div>`; return; }
+  const every = d.post_every_s || 60;
+  $("#hLive").innerHTML = d.live.length ? `<div class="hcards">${d.live.map(v => liveCard(v, every)).join("")}</div>`
+    : `<div class="muted">No monitor is reporting. Start one on a machine, e.g.<br><code>python3 src/piper_health/monitor.py --seconds 86400 --interval 10</code></div>`;
+  $("#hReps").innerHTML = d.reports.map(r => `<tr class="hrep${r.name === hSel ? " sel" : ""}" onclick="openHealth('${esc(r.name)}')">
+      <td>${r.started ? new Date(r.started).toLocaleString([], {weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : ""}</td>
+      <td>${esc(r.host)}</td><td>${esc(r.title)}${r.workload ? ` <span class="chip">workload</span>` : ""}</td><td>${dur(r.seconds)}</td>
+      <td class="n">${f1(r.cpu_avg)} / ${f1(r.cpu_peak)} %</td><td class="n">${gb(r.mem_min_mb)}</td>
+      <td class="n">${r.temp_max == null ? "–" : Math.round(r.temp_max) + " °C"}</td>
+      <td>${r.top ? `${esc(r.top)} <span class="muted">${f1(r.top_cpu)} %</span>` : ""}</td></tr>`).join("")
+    || `<tr><td colspan="8" class="muted">No reports yet.</td></tr>`;
+}
+function liveCard(v, every) {
+  const m = v.machine || {}, stale = v.age_s > every * 2.5, cores = m.cores || 1;
+  const state = !v.running ? `<span class="chip">finished</span>` : stale ? `<span class="chip warn">not reporting</span>` : `<span class="chip supports">live</span>`;
+  const procs = Object.entries(v.procs || {}).sort((a, b) => (b[1].cpu || 0) - (a[1].cpu || 0));
+  const kpi = (val, label, cls = "") => `<div class="kpi ${cls}"><div class="v">${val}</div><div class="l">${label}</div></div>`;
+  return `<div class="panel hcard"><h3>${esc(v.host)} ${state}</h3>
+    <div class="sub">${esc(m.cpu || "")} · ${cores} cores · ${esc(v.title || "monitor")} · updated ${when(v.received_at)}</div>
+    <div class="kpis">${kpi(f1(v.system_cpu) + " %", "CPU (all cores)")}${kpi(gb(v.mem_available_mb), "free memory")}
+      ${kpi(v.temp_max == null ? "–" : Math.round(v.temp_max) + " °C", "hottest sensor", v.temp_max >= 85 ? "bad" : v.temp_max >= 78 ? "hot" : "")}
+      ${v.gpu == null ? "" : kpi(f1(v.gpu) + " %", "GPU")}</div>
+    <table class="ptab">${procs.map(([n, p]) => `<tr><td>${esc(n)}</td>
+      <td style="width:40%"><div class="pbar" style="width:${Math.min(100, (p.cpu || 0) / cores)}%"></div></td>
+      <td class="n">${f1(p.cpu)} %</td><td class="n">${Math.round(p.rss_mb || 0)} MB</td></tr>`).join("")
+      || `<tr><td class="muted">none of Piper's services is running</td></tr>`}</table>
+    <div class="sub" style="margin-top:6px">process CPU: 100 % = one core · averages over the last ${Math.round(v.window_s || every)} s</div></div>`;
+}
+async function openHealth(name) {
+  hSel = name;
+  document.querySelectorAll(".hrep").forEach(r => r.classList.toggle("sel", r.getAttribute("onclick").includes(`'${name}'`)));
+  const d = await get("/api/health/report?name=" + encodeURIComponent(name));
+  const el = $("#hDetail"); el.style.display = "";
+  if (!d) { el.innerHTML = `<div class="muted">Not found.</div>`; return; }
+  const s = d.series || [], cores = d.machine.cores || 1;
+  const names = Object.entries(d.processes || {}).sort((a, b) => (b[1].avg || 0) - (a[1].avg || 0)).map(x => x[0]);
+  const lines = [{name: "whole machine", col: "var(--text)", pts: s.map(x => [x.t, x.system_cpu == null ? null : x.system_cpu * cores / 100])},
+    ...names.map((n, i) => ({name: n, col: HCOL[i % HCOL.length], pts: s.map(x => [x.t, x.procs[n] ? x.procs[n].cpu / 100 : null])}))];
+  const temp = [{name: "hottest sensor", col: "var(--warn)", pts: s.map(x => { const t = Object.values(x.temps || {}); return [x.t, t.length ? Math.max(...t) : null]; })}];
+  el.innerHTML = `<h2>${esc(d.machine.host)} · ${esc(d.title || name)} · ${dur(d.seconds)}</h2>
+    <div class="hleg">${lines.map(l => `<span><i style="background:${l.col}"></i>${esc(l.name)}</span>`).join("")}</div>
+    ${chart(lines, "cores busy", cores)}
+    ${temp[0].pts.some(p => p[1] != null) ? `<div class="hleg"><span><i style="background:var(--warn)"></i>hottest sensor, °C</span></div>${chart(temp, "°C")}` : ""}
+    ${d.text ? `<details><summary>Text report</summary><pre class="htext">${esc(d.text)}</pre></details>` : ""}`;
+}
+function chart(lines, unit, ymaxHint) {
+  const W = 1000, H = 220, L = 44, R = 10, T = 10, B = 24;
+  const all = lines.flatMap(l => l.pts).filter(p => p[1] != null);
+  if (!all.length) return `<div class="muted">No samples.</div>`;
+  const tmax = Math.max(...all.map(p => p[0])) || 1;
+  let ymin = unit === "°C" ? Math.floor(Math.min(...all.map(p => p[1])) / 5) * 5 - 5 : 0;
+  let ymax = Math.max(...all.map(p => p[1]));
+  ymax = unit === "°C" ? Math.ceil(ymax / 5) * 5 + 5 : Math.min(ymaxHint || ymax, Math.max(1, Math.ceil(ymax)));
+  const x = t => L + (W - L - R) * t / tmax, y = v => T + (H - T - B) * (1 - (v - ymin) / ((ymax - ymin) || 1));
+  const step = unit === "°C" ? 5 : Math.max(1, Math.ceil((ymax - ymin) / 6)), vals = [];
+  for (let v = ymin; v <= ymax + 1e-9; v += step) vals.push(v);
+  const grid = vals.map(v => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join("");
+  const ticks = [0, .25, .5, .75, 1].map(f => `<text x="${x(tmax * f)}" y="${H - 6}" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}">${dur(tmax * f) || "0"}</text>`).join("");
+  const paths = lines.map(l => { let d = "", pen = false;
+    for (const [t, v] of l.pts) { if (v == null) { pen = false; continue; } d += `${pen ? "L" : "M"}${x(t).toFixed(1)},${y(v).toFixed(1)}`; pen = true; }
+    return `<path d="${d}" fill="none" stroke="${l.col}" stroke-width="1.6" stroke-linejoin="round"/>`; }).join("");
+  return `<svg class="hchart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${ticks}${paths}
+    <text x="${L}" y="${T + 10}" dx="6">${unit}</text></svg>`;
+}
+setInterval(() => { if (view === "health") loadHealth(); }, 15000);
 
 loadStatus(); loadEvents();
 setInterval(loadStatus, 10000);

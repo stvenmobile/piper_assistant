@@ -7,6 +7,11 @@ Piper's health monitor: how hard each of her services is working, and what is le
         run a workload, watch it (and its child processes) beside the services, then report;
         durations printed by the workload as "[123 s]" are collected too (--mark to change the pattern)
 
+While it runs it sends a live snapshot to the dashboard every health.post_every_s (60 s), and the
+finished report at the end (health.post_url, by default research.mind_url = piper-mind's dashboard;
+--no-post to skip). Sending never holds the monitor up: if the dashboard can't be reached the report is
+still saved here.
+
 The report (printed, and saved to health.history_dir as <host>_<date>_<time>.txt + .json):
     machine     CPU, cores, memory - for comparing two machines
     processes   per service: average / 95th percentile / peak CPU (100% = one full core), CPU seconds
@@ -23,8 +28,10 @@ crowds out the others:
 
 Linux only (reads /proc and /sys - see probe.py); needs no extra packages.
 
-Version 1.0.0 - created 2026-11-24, last modified 2026-11-24
+Version 1.1.0 - created 2026-11-24, last modified 2026-11-25
 History:
+    1.1.0  2026-11-25  Reports to the dashboard: a live snapshot every minute and the finished report
+                       (series thinned to <= 400 points); --post URL, --no-post.
     1.0.0  2026-11-24  First version: services, a watched workload, system load, temperatures, GPU.
 """
 import argparse
@@ -35,6 +42,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -53,6 +61,7 @@ DEFAULT_SERVICES = {                      # name -> a part of the command line t
     "dashboard": "piper_dashboard/server.py",
 }
 REDISCOVER_S = 10.0                       # services can restart: look for their pids again this often
+MAX_POINTS = 400                          # the series sent to the dashboard is thinned to this many points
 
 
 def _config() -> dict:
@@ -203,6 +212,102 @@ def stats(vals: list) -> dict:
     return {"avg": round(statistics.mean(v), 1), "p95": round(p95, 1), "peak": round(v[-1], 1)}
 
 
+def thin(series: list, n: int = MAX_POINTS) -> list:
+    """At most n points: consecutive samples averaged (CPU, memory, GPU) or maxed (temperatures)."""
+    if len(series) <= n:
+        return series
+    out, size = [], len(series) / n
+    for i in range(n):
+        chunk = series[int(i * size):int((i + 1) * size)] or [series[min(len(series) - 1, int(i * size))]]
+        avg = lambda vals: round(sum(vals) / len(vals), 1) if vals else None
+        temps = {}
+        for x in chunk:
+            for k, v in (x.get("temps") or {}).items():
+                temps[k] = max(temps.get(k, v), v)
+        procs = {}
+        for name in {n2 for x in chunk for n2 in x["procs"]}:
+            vals = [x["procs"][name] for x in chunk if name in x["procs"]]
+            procs[name] = {"cpu": avg([v["cpu"] for v in vals]), "rss_mb": max(v["rss_mb"] for v in vals)}
+        out.append({"t": chunk[-1]["t"],
+                    "system_cpu": avg([x["system_cpu"] for x in chunk if x.get("system_cpu") is not None]),
+                    "mem_available_mb": min((x["mem_available_mb"] for x in chunk if x.get("mem_available_mb")),
+                                            default=None),
+                    "load": max((x["load"] for x in chunk if x.get("load") is not None), default=None),
+                    "temps": temps, "gpu": avg([x["gpu"] for x in chunk if x.get("gpu") is not None]),
+                    "procs": procs})
+    return out
+
+
+def post(url: str, path: str, body: dict, timeout: float = 3.0) -> bool:
+    """POST JSON to the dashboard; False (never an exception) if it can't be reached."""
+    try:
+        req = urllib.request.Request(url.rstrip("/") + path, json.dumps(body, default=str).encode(),
+                                     {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+class LivePoster:
+    """Sends a snapshot of the last minute to the dashboard every `every` seconds, in a thread."""
+
+    def __init__(self, mon: Monitor, url: str, meta: dict, every: float = 60.0):
+        self.mon, self.url, self.meta, self.every = mon, url, meta, every
+        self._stop = threading.Event()
+        self.warned = False
+
+    def snapshot(self) -> dict | None:
+        s = list(self.mon.samples)
+        if not s:
+            return None
+        recent = [x for x in s if x["t"] >= s[-1]["t"] - self.every] or s[-1:]
+        avg = lambda vals: round(sum(vals) / len(vals), 1) if vals else None
+        procs = {}
+        for name in {n for x in recent for n in x["procs"]}:
+            vals = [x["procs"][name] for x in recent if name in x["procs"]]
+            procs[name] = {"cpu": avg([v["cpu"] for v in vals]), "rss_mb": vals[-1]["rss_mb"]}
+        temps = s[-1].get("temps") or {}
+        return {**self.meta, "machine": probe.machine_info(), "elapsed_s": s[-1]["t"], "window_s": self.every,
+                "system_cpu": avg([x["system_cpu"] for x in recent if x.get("system_cpu") is not None]),
+                "mem_available_mb": s[-1].get("mem_available_mb"), "load": s[-1].get("load"),
+                "gpu": avg([x["gpu"] for x in recent if x.get("gpu") is not None]),
+                "temp_max": max(temps.values()) if temps else None, "temps": temps, "procs": procs}
+
+    def send(self, final: bool = False):
+        snap = self.snapshot()
+        if snap is None:
+            return
+        snap["running"] = not final
+        if not post(self.url, "/api/health/live", snap) and not self.warned:
+            self.warned = True
+            print(f"[Health] Can't reach the dashboard at {self.url} - reports are still saved here")
+
+    def start(self):
+        def run():
+            while not self._stop.wait(self.every):
+                self.send()
+        threading.Thread(target=run, daemon=True).start()
+        return self
+
+    def stop(self):
+        self._stop.set()
+        self.send(final=True)
+
+
+def post_url(arg: str | None, cfg: dict) -> str:
+    """Where to send: --post, else health.post_url, else research.mind_url; "" = nowhere."""
+    if arg is not None:
+        return arg
+    if cfg.get("post_url") is not None:
+        return cfg["post_url"]
+    try:
+        from piper_brain.config import CONFIG
+        return CONFIG.get("research", {}).get("mind_url") or ""
+    except Exception:
+        return ""
+
+
 def report(summary: dict, marks: list | None = None, title: str = "") -> str:
     m, sysd = summary["machine"], summary["system"]
     f = lambda x: "-" if x is None else (f"{x:.1f}" if isinstance(x, float) else str(x))
@@ -271,6 +376,9 @@ def main(argv=None):
     ap.add_argument("--mark", default=r"\[(\d+(?:\.\d+)?) s\]", help="regex for durations in the workload's output")
     ap.add_argument("--title", default="", help="a note for the report, e.g. 'piper-mind baseline'")
     ap.add_argument("--out", default=cfg.get("history_dir", "data/health"), help="where reports are saved")
+    ap.add_argument("--post", default=None, metavar="URL",
+                    help="the dashboard to report to (default health.post_url, else research.mind_url)")
+    ap.add_argument("--no-post", action="store_true", help="don't send anything to the dashboard")
     ap.add_argument("--run", action="store_true", help="the workload: everything after '--run --'")
     argv = list(sys.argv[1:] if argv is None else argv)
     cmd = None
@@ -291,6 +399,13 @@ def main(argv=None):
     stamp = f"{probe.machine_info()['host']}_{datetime.now():%Y%m%d_%H%M%S}"
 
     mon = Monitor(services=services, interval=a.interval).start()
+    url = "" if a.no_post else post_url(a.post, cfg)
+    meta = {"host": probe.machine_info()["host"], "name": stamp, "title": a.title,
+            "started": mon.started.isoformat(timespec="seconds"), "interval_s": a.interval,
+            "workload": " ".join(cmd) if cmd else None, "until_s": None if cmd else (a.seconds or 60.0)}
+    live = LivePoster(mon, url, meta, float(cfg.get("post_every_s", 60))).start() if url else None
+    if url:
+        print(f"[Health] reporting to the dashboard at {url}")
     marks, rc = [], None
     try:
         if cmd:
@@ -305,6 +420,8 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("\n(stopped)")
     mon.stop()
+    if live:
+        live.stop()
     summ = mon.summary()
     summ.update({"title": a.title, "workload": " ".join(cmd) if cmd else None, "returncode": rc,
                  "marks": marks})
@@ -313,6 +430,10 @@ def main(argv=None):
     (out_dir / f"{stamp}.txt").write_text(text + "\n", encoding="utf-8")
     (out_dir / f"{stamp}.json").write_text(json.dumps({**summ, "series": list(mon.samples)}, indent=1), encoding="utf-8")
     print(f"\nsaved to {out_dir / stamp}.txt (+ .json)")
+    if url:
+        sent = post(url, "/api/health/report", {**summ, "name": stamp, "text": text, "series": thin(list(mon.samples))},
+                    timeout=10.0)
+        print("sent to the dashboard" if sent else f"(couldn't send the report to {url})")
 
 
 if __name__ == "__main__":

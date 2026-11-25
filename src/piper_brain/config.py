@@ -4,8 +4,9 @@ Piper Brain: Central configuration loader - the one place config.yaml is read.
 Every setting has a default here; config.yaml overrides any of them (nested sections are
 merged, so a partial section is fine), and a few environment variables override those.
 
-Version 1.2.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+Version 1.3.0 - created before 2026-11-24 (see git history), last modified 2026-11-25
 History:
+    1.3.0  2026-11-25  health.post_url / post_every_s: the monitor sends live snapshots and reports to the dashboard.
     1.2.0  2026-11-24  health section (piper_health).
     1.1.0  2026-11-24  Chat model qwen3:14b (thinking off); research only 02:00-08:00 (pause 08:00-02:00 daily).
     1.0.0  -           earlier work, unversioned (git history)
@@ -202,7 +203,11 @@ DEFAULTS: dict = {
     },
     "health": {                           # piper_health: how hard Piper's services work, what's left of the machine
         "interval_s": 1.0,                # seconds between samples
-        "history_dir": "data/health",     # reports (relative to the repo root; data/ is git-ignored)
+        "history_dir": "data/health",     # reports (relative to the repo root; data/ is git-ignored); the
+                                          #   dashboard also keeps the reports it receives here
+        "post_url": None,                 # the dashboard the monitor reports to; None = research.mind_url
+                                          #   (piper-mind), "" = don't send
+        "post_every_s": 60,               # a live snapshot this often while the monitor runs
         "services": {                     # name -> a part of the command line that identifies it
             "assistant": "src/main.py",
             "vision": "piper_vision/service.py",

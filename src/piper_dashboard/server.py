@@ -7,6 +7,14 @@ only. It opens the database READ-ONLY, so it runs happily beside a research sess
 
 Then open http://<jetson>:8080/ on the home network. It binds to dashboard.host (0.0.0.0 = every
 interface): keep it on the LAN - never forward the port to the internet (the topics are private).
+
+The Health tab (health.py) shows what piper_health's monitor sends in - live snapshots and finished
+reports - and the reports saved on this machine. It works without the memory database.
+
+Version 1.1.0 - created before 2026-11 (date not recorded), last modified 2026-11-25
+History:
+    1.1.0  2026-11-25  Health endpoints: GET /api/health, /api/health/report; POST /api/health/live,
+                       /api/health/report. POST bodies over 8 MB are refused. First version block.
 """
 import argparse
 import json
@@ -22,10 +30,11 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from piper_brain.config import CONFIG, ROOT_DIR      # noqa: E402
-from piper_dashboard import api                       # noqa: E402
+from piper_dashboard import api, health               # noqa: E402
 from piper_memory import MemoryStore                  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
+MAX_POST = 8 * 1024 * 1024
 
 
 class Dashboard:
@@ -43,6 +52,10 @@ class Dashboard:
 
     def handle(self, route: str, qs: dict):
         one = lambda k, d="": qs.get(k, [d])[0]
+        if route == "/api/health":                                       # health needs no memory database
+            return health.overview()
+        if route == "/api/health/report":
+            return health.report(one("name"))
         with self.lock:
             mem = self.store()
             if route == "/api/status":
@@ -85,6 +98,10 @@ class Dashboard:
 
     def post(self, route: str, body: dict | None = None):
         body = body or {}
+        if route == "/api/health/live":                                  # from a running health monitor
+            return health.receive_live(body)
+        if route == "/api/health/report":
+            return health.receive_report(body)
         if route == "/api/research/hold":                                # body: {"seconds": 300} - from the Orin
             return api.research_hold_request(self.path, float(body.get("seconds", 300)))
         if route == "/api/research/release":
@@ -152,6 +169,8 @@ def make_handler(dash: Dashboard):
         def do_POST(self):
             try:
                 n = int(self.headers.get("Content-Length") or 0)
+                if n > MAX_POST:
+                    return self._send(413, b'{"error": "too large"}', "application/json")
                 body = json.loads(self.rfile.read(n) or b"{}") if n else {}
                 data = dash.post(urlparse(self.path).path, body if isinstance(body, dict) else {})
             except Exception as e:
