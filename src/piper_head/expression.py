@@ -8,8 +8,8 @@ test skill and a few moments (a welcome, a misunderstanding) show something for 
                            research carries on)
     ENGAGED                neutral                                      listening (+ / -)
     PROCESSING             neutral                                      thinking (dots)
-    SPEAKING               talk; happytalk when the mood is "warm",     none
-                           excitedtalk when it is "excited"
+    SPEAKING               talk; excitedtalk when the mood is           none
+                           "excited" ("warm" talks plainly for now)
 
     research_notice(True)  "Research in progress..." instead of the mouth while Piper pauses her
                            research after the wake word; research_notice(False) when she's ready
@@ -18,12 +18,17 @@ test skill and a few moments (a welcome, a misunderstanding) show something for 
     confused()             ??? for a few seconds
     sleep()                the sleep mouth for SLEEP_S ("Piper, go to sleep"), then blank
 
+Happytalk (the talking mouth on an upturned curve) is kept for later: too exaggerated for everyday
+speech, so no mood uses it for now - only the face test's "test happy talk" (mood "happytalk").
+
 Speech moves the lips only in talk / happytalk / excitedtalk (the mouth simulates speech by
 itself), so frowning while talking can't happen. Never raises: the client drops messages if the
 head link isn't running.
 
-Version 1.1.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+Version 1.2.0 - created before 2026-11-24 (see git history), last modified 2026-11-26
 History:
+    1.2.0  2026-11-26  "warm" no longer means happytalk (too exaggerated for normal speech: greetings,
+                       recognising someone); happytalk saved for later, reachable as mood "happytalk".
     1.1.0  2026-11-24  "excited" mood -> excitedtalk while speaking.
     1.0.0  -           earlier work, unversioned (git history)
 """
@@ -33,7 +38,9 @@ import time
 TICK_S = 1.0          # override expiry
 RESEND_S = 60.0       # re-send what should be showing, in case the link restarted
 SLEEP_S = 120.0       # "go to sleep": the sleep mouth this long, then the dark screen
-TALK_BY_MOOD = {"warm": "happytalk", "excited": "excitedtalk"}   # the talking mouth per mood; else "talk"
+# the talking mouth per mood; else "talk". "warm" (greetings, recognising someone, friendly replies) used to
+# be happytalk - saved for later; the "happytalk" mood is for the face test only.
+TALK_BY_MOOD = {"excited": "excitedtalk", "happytalk": "happytalk"}
 
 
 class Expression:

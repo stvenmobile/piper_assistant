@@ -63,7 +63,7 @@ class QuickResponder:
             ),
         ]
 
-    # replies said with the happy talking mouth (main.py: mood "warm")
+    # warm replies (main.py: mood "warm" - the plain talking mouth for now; see piper_head/expression.py)
     WARM_KINDS = ("greeting", "farewell", "chat")
 
     def match(self, text: str) -> str | None:

@@ -7,14 +7,16 @@ Spoken test phrases for the mouth OLED - answered locally, no language model:
                                                   (also "you can go to sleep now", "goodnight", ...)
     "Piper, wake up"                              (the wake word already woke her) - says so
     "Piper, test normal talk"                     a sentence in the plain talking mouth
-    "Piper, test happy talk"                      a sentence in the happy talking mouth
+    "Piper, test happy talk"                      a sentence in the happy talking mouth (mood "happytalk";
+                                                  no other mood uses it for now)
     "Piper, test excited talk"                    a sentence in the excited talking mouth (mood "excited")
 
 handle(text) -> None (not one of these), "engaged" (stay in the conversation) or "sleep" (the
 caller ends the conversation, so the sleep mouth shows).
 
-Version 1.1.0 - created before 2026-11-24 (see git history), last modified 2026-11-24
+Version 1.2.0 - created before 2026-11-24 (see git history), last modified 2026-11-26
 History:
+    1.2.0  2026-11-26  "test happy talk" asks for mood "happytalk" ("warm" no longer shows it).
     1.1.0  2026-11-24  "test excited talk".
     1.0.0  -           earlier work, unversioned (git history)
 """
@@ -82,7 +84,7 @@ class FaceTest:
             self.say(NORMAL_TALK, "neutral")
             return "engaged"
         if re.fullmatch(r"test (your )?happy (talk|talking)", t):
-            self.say(HAPPY_TALK, "warm")
+            self.say(HAPPY_TALK, "happytalk")
             return "engaged"
         if re.fullmatch(r"test (your )?excited (talk|talking)", t):
             self.say(EXCITED_TALK, "excited")
